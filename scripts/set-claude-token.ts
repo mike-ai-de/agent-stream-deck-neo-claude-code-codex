@@ -2,18 +2,20 @@
 /**
  * Stores a Claude Code OAuth token for the deck to use.
  *
- *   claude setup-token                       # prints a token; run this yourself
- *   npm run token:claude                     # paste it when prompted
- *   npm run token:claude -- --check          # report what the deck currently resolves
- *   npm run token:claude -- --clear          # remove the stored token
+ *   claude setup-token | npm run token:claude    # preferred: the token never hits the screen
+ *   npm run token:claude                         # interactive; input stays hidden
+ *   npm run token:claude -- --check              # report what the deck currently resolves
+ *   npm run token:claude -- --clear              # remove the stored token
  *
- * The token is written 0600 and never echoed back.
+ * The token is written 0600 and is never printed back.
  */
 import fs from "node:fs";
-import path from "node:path";
-import { createInterface } from "node:readline/promises";
 import { configDir } from "../src/config.js";
 import { readClaudeAccessToken, tokenFilePath } from "../src/lib/claude-auth.js";
+
+// setup-token prints prose around the value, so a piped payload is scanned for the token itself
+// rather than trusted wholesale.
+const TOKEN_PATTERN = /sk-ant-[A-Za-z0-9_-]{20,}/;
 
 const args = process.argv.slice(2);
 const file = tokenFilePath();
@@ -21,11 +23,14 @@ const file = tokenFilePath();
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`Usage: npm run token:claude [-- --check | --clear]
 
-  (no flag)  Prompt for a token and store it at ${file}
+  (no flag)  Read a token from stdin, or prompt for one with the input hidden
   --check    Show which source the deck resolves a token from
   --clear    Delete the stored token
 
-Generate a token with:  claude setup-token`);
+Generate a token with:  claude setup-token
+Safest route, keeping it off the screen entirely:
+
+  claude setup-token | npm run token:claude`);
   process.exit(0);
 }
 
@@ -44,37 +49,30 @@ if (args.includes("--check")) {
   process.exit(0);
 }
 
-if (!process.stdin.isTTY) {
-  console.error(`Run this in an interactive terminal, or write the token yourself:
+const raw = process.stdin.isTTY ? await promptHidden("Paste the token (input stays hidden): ") : await readStdin();
+const match = raw.match(TOKEN_PATTERN);
 
-  install -m 600 /dev/null "${file}" && printf '%s' "<token>" > "${file}"`);
+if (!match) {
+  console.error(`\nNo Claude OAuth token found in that input; nothing was written.
+
+A token looks like  sk-ant-oat01-...  and contains no spaces. If you pasted a
+command or a partial line by mistake, run this again. To keep the value off the
+screen entirely, pipe it straight in:
+
+  claude setup-token | npm run token:claude`);
   process.exit(1);
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-try {
-  console.log("Generate a token in another terminal with:  claude setup-token");
-  const entered = (await rl.question("Paste the token (input is stored, not echoed back): ")).trim();
-  if (!entered) {
-    console.error("No token entered; nothing was written.");
-    process.exit(1);
-  }
-  if (entered.length < 20) {
-    console.error("That does not look like a token; nothing was written.");
-    process.exit(1);
-  }
+const token = match[0];
+fs.mkdirSync(configDir(), { recursive: true });
+const temporary = `${file}.tmp`;
+fs.writeFileSync(temporary, token, { mode: 0o600 });
+fs.renameSync(temporary, file);
+fs.chmodSync(file, 0o600);
 
-  fs.mkdirSync(configDir(), { recursive: true });
-  const temporary = `${file}.tmp`;
-  fs.writeFileSync(temporary, entered, { mode: 0o600 });
-  fs.renameSync(temporary, file);
-  fs.chmodSync(file, 0o600);
-  console.log(`\nStored ${entered.length} characters at ${file} (mode 600).`);
-  await report();
-  console.log(`\nApply it with:  launchctl kickstart -k gui/$(id -u)/com.neo-agent-deck`);
-} finally {
-  rl.close();
-}
+console.log(`\nStored ${token.length} characters at ${file} (mode 600).`);
+await report();
+console.log(`\nApply it with:  launchctl kickstart -k gui/$(id -u)/com.neo-agent-deck`);
 
 async function report(): Promise<void> {
   try {
@@ -82,6 +80,61 @@ async function report(): Promise<void> {
     console.log(`Deck resolves a Claude token from: ${source}`);
   } catch (error) {
     console.log(`Deck finds no usable token: ${error instanceof Error ? error.message : String(error)}`);
-    console.log(`Expected file: ${path.normalize(file)}`);
+    console.log(`Expected file: ${file}`);
   }
+}
+
+async function readStdin(): Promise<string> {
+  let data = "";
+  process.stdin.setEncoding("utf8");
+  for await (const chunk of process.stdin) data += chunk;
+  return data;
+}
+
+/**
+ * Reads a line without echoing it. readline would print every keystroke, which is how a mistyped
+ * line ends up in scrollback — and how a real token ends up somewhere it should not be.
+ */
+function promptHidden(question: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(question);
+    const stdin = process.stdin;
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode?.(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+
+    let buffer = "";
+    const finish = (value: string | null, error?: Error): void => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode?.(wasRaw ?? false);
+      stdin.pause();
+      process.stdout.write("\n");
+      if (error) reject(error);
+      else resolve(value ?? "");
+    };
+
+    const onData = (chunk: string): void => {
+      for (const character of chunk) {
+        switch (character) {
+          case "\r":
+          case "\n":
+            finish(buffer);
+            return;
+          case "": // Ctrl-C
+            finish(null, new Error("cancelled"));
+            return;
+          case "": // Backspace
+          case "\b":
+            buffer = buffer.slice(0, -1);
+            break;
+          default:
+            // Ignore other control characters so a stray escape sequence cannot enter the value.
+            if (character >= " ") buffer += character;
+        }
+      }
+    };
+
+    stdin.on("data", onData);
+  });
 }

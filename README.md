@@ -156,16 +156,23 @@ empty string. The sign-in works, but a separate process has nothing to present t
 `doctor` reports `Claude Code sign-in not available`. Generate a long-lived token and store it:
 
 ```bash
-claude setup-token
+claude setup-token | npm run token:claude
 ```
 
-```bash
-npm run token:claude
-```
+Piping is the recommended route: the token goes straight from one process to the other and never
+appears on screen or in shell history. The script scans the piped output for the token itself, so
+the surrounding prose from `setup-token` does no harm.
+
+Run `npm run token:claude` on its own to be prompted instead; the prompt reads the line without
+echoing it. Either way the value must look like `sk-ant-…`, so a stray command pasted at the prompt
+is rejected rather than stored.
 
 The token is written to `~/.neo-agent-deck/claude-token` with mode `600` and is read after the
 environment variable and the Keychain, so a healthy Keychain entry still wins. `npm run
 token:claude -- --check` reports which source is in use, and `-- --clear` removes it.
+
+A token printed to a terminal should be treated as exposed — it is in scrollback, and possibly in
+shell history or a screen recording. Generate a fresh one with `claude setup-token` and pipe it.
 
 ## How it works
 
