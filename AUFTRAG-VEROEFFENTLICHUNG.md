@@ -121,6 +121,45 @@ MIT erlaubt den Fork ausdrücklich — aber nur mit erhaltener Urheberrechts- un
 
 ### Phase 2 — Fokus auf Claude und Codex
 
+**Entschieden: die Claude-Usage-Funktion wird nicht mitveröffentlicht.** Sie fliegt vollständig
+raus, nicht nur aus der Belegung. Zusammen mit dem OpenCode-Ausbau unten in **einem** Refactor,
+weil beide dieselben Dateien anfassen.
+
+Zu entfernen:
+
+- `src/lib/claude-auth.ts` und `src/lib/usage-backoff.ts` — beide existieren nur für diesen Pfad
+- `scripts/set-claude-token.ts` und das npm-Skript `token:claude`
+- In `src/collectors/claude.ts` alles rund um den Netzabruf: `readUsage`, `refreshUsage`,
+  `shouldFetchUsage`, `syncBackoff`, `backOff`, `backoffWaitMs`, `missingScope`,
+  `usageErrorMessage`, `readErrorMessage` samt Konstanten. Die Session-Sammlung bleibt unberührt.
+- Der Sign-in-Check in `scripts/doctor.ts`
+- Tastenmodul `claude.usage` und InfoBar-Seite `claude` — Typen, Listen, Render- und
+  Input-Dispatch, Hilfetexte im Setup-Wizard
+- `test/claude-background.test.ts` komplett; in `test/platform.test.ts` die claude-auth-Tests; in
+  `test/extensions.test.ts` die Blöcke „token hygiene", „backoff ladder", „persisted usage backoff"
+  und „usage scope errors"
+- Die README-Abschnitte zu Token, Scope und `user:profile`
+
+**Nicht anfassen:** `codexUsageUrl` und die gesamte Usage-Darstellung — `renderUsageKey`,
+`leadingWindow`, `soonestReset`, `usageLevelFor`, Schwellenwerte, Reset-Countdown. Codex braucht
+das alles weiterhin.
+
+Zwei Folgearbeiten, die dabei anfallen und nicht liegenbleiben dürfen:
+
+`UsageSnapshot.retryAt` und die daran hängende „paused"-Fußzeile in `renderUsageKey` hatten nur
+einen Erzeuger, nämlich den Claude-Backoff. Beides mit entfernen.
+
+Wichtiger: Nach diesem Umbau **und** dem OpenCode-Ausbau hat `forceUsage` keinen Konsumenten mehr —
+Codex liest ausschließlich lokale Dateien. Die gesamte Force-Refresh-Mechanik verschwindet damit:
+der Parameter in `Dashboard.collect`, `ClaudeCollector.collect`, die `forceUsage`-Felder aller
+`InputAction`-Varianten und der `backgroundUsage`-Pfad. Lass keine tote Maschinerie stehen.
+
+Das Ergebnis ist bemerkenswert und gehört in die README: **das Projekt macht dann überhaupt keine
+Netzwerkaufrufe mehr.** Alles kommt aus lokalen Dateien. Das ist ein stärkeres Versprechen als
+„keine Telemetrie" und sollte entsprechend prominent stehen.
+
+#### OpenCode ausbauen
+
 OpenCode ist auf dieser Maschine nicht installiert und aus der Belegung verschwunden, aber im Code
 noch überall präsent: **20 Dateien** enthalten OpenCode-Bezüge, darunter ein eigener Collector,
 Typen, Render-Zweige, Doctor-Checks und Tests.
@@ -178,30 +217,29 @@ des Nutzers anlegen, pushen, auf öffentlich stellen.
 
 ---
 
-## 5. Zwei Entscheidungen, die der Nutzer treffen muss
+## 5. Entscheidungen des Eigentümers
 
-Beide vor Phase 4 klären, nicht selbst entscheiden.
+Entscheidung 1 ist gefallen. Entscheidung 2 ist vor Phase 4 zu klären, nicht selbst zu treffen.
 
-### Entscheidung 1 — Wird die Claude-Usage-Funktion mitveröffentlicht?
+### Entscheidung 1 — Claude-Usage: **entschieden, wird entfernt**
 
-Der Code für `claude.usage`, die Token-Datei, `npm run token:claude` und der Backoff sind
-funktionsfähig und nur aus der Belegung verschwunden. Für ein **privates** Setup ist das unkritisch.
+Der Eigentümer hat die aktuelle Konfiguration ohne Claude-Usage übernommen. Die Funktion wird nicht
+mitveröffentlicht; der genaue Umfang steht in Phase 2.
 
-Für ein **öffentliches** Repo ist es das nicht ohne Weiteres: Anthropic schreibt im
-[Login-Artikel](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account), der
-bevorzugte Weg für Drittanbieter-Software sei API-Key-Authentifizierung, und untersagt Anwendungen,
+Begründung fürs Protokoll: Anthropic nennt im
+[Login-Artikel](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account)
+API-Key-Authentifizierung als bevorzugten Weg für Drittanbieter-Software und untersagt Anwendungen,
 die Drittanbieter-Traffic gegen Abo-Limits routen. `/api/oauth/usage` ist nicht als öffentliche
-Schnittstelle dokumentiert. In [anthropics/claude-code#30930](https://github.com/anthropics/claude-code/issues/30930)
-ist belegt, dass genau dieses Muster bei Statuszeilen-Tools zu dauerhaften 429ern führt.
+Schnittstelle dokumentiert, und in
+[anthropics/claude-code#30930](https://github.com/anthropics/claude-code/issues/30930) ist belegt,
+dass dieses Muster bei Statuszeilen-Tools zu dauerhaften 429ern führt. Ein öffentliches Tool, das
+Fremde anleitet, ihren Abo-Token dorthin zu richten, ist etwas anderes als derselbe Griff im
+Eigengebrauch.
 
-Ein öffentliches Tool, das Fremde anleitet, ihren Abo-OAuth-Token gegen diesen Endpunkt zu richten,
-ist etwas anderes als dasselbe im Eigengebrauch.
-
-**Empfehlung:** die OAuth-Usage-Funktion vor der Veröffentlichung entfernen — Kachel, Collector-Pfad,
-Token-Skript und Doku. Alternative, falls die Zahl gewünscht bleibt: lokal aus den Transkripten
-rechnen. Die Machbarkeit ist belegt, `~/.claude/projects/*.jsonl` trägt `input_tokens`,
-`output_tokens` und beide Cache-Felder je Antwort; eine Probe ergab 151 M Tokens über 5 h und
-233 M über 7 d. Das wären Rohtokens, keine Plan-Prozente — ehrlich zu beschriften.
+Falls die Zahl später doch gewünscht wird: lokal aus `~/.claude/projects/*.jsonl` rechnen. Die
+Felder `input_tokens`, `output_tokens` und beide Cache-Werte liegen je Antwort mit Zeitstempel vor;
+eine Probe ergab 151 M Tokens über 5 h und 233 M über 7 d. Das wären Rohtokens, keine
+Plan-Prozente — entsprechend ehrlich zu beschriften.
 
 ### Entscheidung 2 — Wie heißt das Projekt?
 
