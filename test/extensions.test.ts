@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { usageErrorMessage } from "../src/collectors/claude.js";
 import { parseCodexCwd } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, type DeckConfig } from "../src/config.js";
 import { pickPrimary } from "../src/dashboard.js";
@@ -225,6 +226,20 @@ describe("attention notifier", () => {
     await notifier.handle(snapshotWith(providerView()), NOW);
     expect(await notifier.handle(snapshotWith(attention()), NOW + 1_000)).toEqual([]);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("usage backoff messaging", () => {
+  it("names the likely cause and when it will try again", () => {
+    expect(usageErrorMessage(403, NOW + 10 * 60_000, NOW)).toContain("token rejected");
+    expect(usageErrorMessage(403, NOW + 10 * 60_000, NOW)).toContain("retrying in 10m");
+    expect(usageErrorMessage(429, NOW + 20 * 60_000, NOW)).toContain("rate limited");
+    expect(usageErrorMessage(503, NOW + 5 * 60_000, NOW)).toContain("Anthropic API error");
+    expect(usageErrorMessage(418, NOW + 5 * 60_000, NOW)).toContain("unexpected response");
+  });
+
+  it("never advertises a wait shorter than a minute", () => {
+    expect(usageErrorMessage(429, NOW + 1_000, NOW)).toContain("retrying in 1m");
   });
 });
 

@@ -36,7 +36,10 @@ export function extractClaudeAccessToken(value: unknown): string | null {
 export async function readClaudeAccessToken(
   directory = claudeConfigDirectory(),
   env: NodeJS.ProcessEnv = process.env,
-  platform = process.platform
+  platform = process.platform,
+  // Injectable so tests stay isolated from the real deck directory. Without this a test asserting
+  // on the credentials-file fallback would read — and on failure print — the operator's own token.
+  deckDirectory = configDir()
 ): Promise<ClaudeAccessToken> {
   const environmentToken = env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
   if (environmentToken) return { token: environmentToken, source: "environment" };
@@ -55,7 +58,7 @@ export async function readClaudeAccessToken(
   }
 
   try {
-    const raw = (await fs.promises.readFile(tokenFilePath(), "utf8")).trim();
+    const raw = (await fs.promises.readFile(tokenFilePath(deckDirectory), "utf8")).trim();
     // The file may hold a bare token or the same JSON shape the Keychain uses.
     const token = raw.startsWith("{") ? extractClaudeAccessToken(JSON.parse(raw)) : raw;
     if (token) return { token, source: "token file" };

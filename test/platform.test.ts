@@ -60,10 +60,33 @@ describe("portable Claude credentials", () => {
       fs.writeFileSync(path.join(directory, ".credentials.json"), JSON.stringify({
         claudeAiOauth: { accessToken: "windows-oauth-token", refreshToken: "never-return-this" }
       }));
-      await expect(readClaudeAccessToken(directory, {}, "win32")).resolves.toEqual({
+      // The empty fourth argument keeps this away from the real deck directory; otherwise a
+      // developer with a stored token would read theirs instead of the fixture.
+      await expect(readClaudeAccessToken(directory, {}, "win32", directory)).resolves.toEqual({
         token: "windows-oauth-token",
         source: "credentials file"
       });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the deck token file from the directory it is given, not the real one", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "neo-agent-deck-token-"));
+    try {
+      fs.writeFileSync(path.join(directory, "claude-token"), "sk-ant-oat01-fixture", { mode: 0o600 });
+      await expect(readClaudeAccessToken(directory, {}, "win32", directory)).resolves.toEqual({
+        token: "sk-ant-oat01-fixture",
+        source: "token file"
+      });
+
+      // An empty directory must not silently fall back to the operator's own token file.
+      const empty = fs.mkdtempSync(path.join(os.tmpdir(), "neo-agent-deck-empty-"));
+      try {
+        await expect(readClaudeAccessToken(empty, {}, "win32", empty)).rejects.toThrow("Claude Code OAuth token not found");
+      } finally {
+        fs.rmSync(empty, { recursive: true, force: true });
+      }
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

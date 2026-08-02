@@ -31,6 +31,24 @@ interface ClaudeUsageResponse {
 
 const execFileAsync = promisify(execFile);
 
+/** Normal polling cadence for the usage endpoint. */
+const USAGE_INTERVAL_MS = 300_000;
+
+/** Escalating waits after the API refuses us, indexed by consecutive failure count. */
+const USAGE_BACKOFF_STEPS = [5, 10, 20, 40, 60].map((minutes) => minutes * 60_000);
+
+export function usageErrorMessage(status: number, retryAt: number, now = Date.now()): string {
+  const minutes = Math.max(1, Math.round((retryAt - now) / 60_000));
+  const reason = status === 401 || status === 403
+    ? "token rejected; a setup-token may lack usage access — sign in to Claude Code once"
+    : status === 429
+      ? "rate limited"
+      : status >= 500
+        ? "Anthropic API error"
+        : "unexpected response";
+  return `Claude usage HTTP ${status} (${reason}; retrying in ${minutes}m)`;
+}
+
 export interface ClaudeTail {
   lastUser: number;
   lastEnd: number;
@@ -43,6 +61,8 @@ export class ClaudeCollector {
   private scannedAt = 0;
   private usage: UsageSnapshot = emptyUsage("claude", "loading");
   private usageFetchedAt = 0;
+  private usageBackoffUntil = 0;
+  private usageFailures = 0;
 
   constructor(
     private readonly sessionDirectory = claudeSessionsDirectory(),
@@ -57,9 +77,19 @@ export class ClaudeCollector {
     }
     const [sessions] = await Promise.all([
       this.readSessions(state),
-      forceUsage || now - this.usageFetchedAt > 300_000 ? this.readUsage() : Promise.resolve()
+      this.shouldFetchUsage(now, forceUsage) ? this.readUsage() : Promise.resolve()
     ]);
     return { sessions, usage: this.usage };
+  }
+
+  /**
+   * A rejected token does not become valid by asking again sooner, and hammering a 429 only extends
+   * it. Once the API refuses us, the backoff window applies even to a forced refresh — a key press
+   * or a `doctor` run must not be a way to keep beating on a rate limit.
+   */
+  private shouldFetchUsage(now: number, forceUsage: boolean): boolean {
+    if (now < this.usageBackoffUntil) return false;
+    return forceUsage || now - this.usageFetchedAt > USAGE_INTERVAL_MS;
   }
 
   private async readSessions(state: PersistedState): Promise<SessionSnapshot[]> {
@@ -131,7 +161,12 @@ export class ClaudeCollector {
         },
         signal: AbortSignal.timeout(10_000)
       });
-      if (!response.ok) throw new Error(`Claude usage HTTP ${response.status}`);
+      if (!response.ok) {
+        // Honour Retry-After when the server sends one; otherwise escalate our own wait.
+        const retryAfter = Number(response.headers.get("retry-after"));
+        this.backOff(response.status, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1_000 : null);
+        throw new Error(usageErrorMessage(response.status, this.usageBackoffUntil));
+      }
       const body = await response.json() as ClaudeUsageResponse;
       const limits = body.limits || [];
       const session = limits.find((limit) => limit.kind === "session");
@@ -142,9 +177,21 @@ export class ClaudeCollector {
         updatedAt: Date.now(),
         error: null
       };
+      this.usageFailures = 0;
+      this.usageBackoffUntil = 0;
     } catch (error) {
+      // A transport failure (offline, DNS, timeout) has no status code and did not reach the API,
+      // so it gets the gentle backoff rather than the escalating one.
+      if (!this.usageBackoffUntil || this.usageBackoffUntil <= Date.now()) this.backOff(0, null);
       this.usage = { ...this.usage, updatedAt: Date.now(), error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  private backOff(status: number, retryAfterMs: number | null): void {
+    const escalating = status === 401 || status === 403 || status === 429 || status >= 500;
+    this.usageFailures = escalating ? Math.min(this.usageFailures + 1, USAGE_BACKOFF_STEPS.length - 1) : 0;
+    const step = escalating ? USAGE_BACKOFF_STEPS[this.usageFailures] : USAGE_INTERVAL_MS;
+    this.usageBackoffUntil = Date.now() + Math.max(retryAfterMs ?? 0, step);
   }
 }
 
