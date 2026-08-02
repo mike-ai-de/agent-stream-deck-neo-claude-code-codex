@@ -102,7 +102,10 @@ export class CodexCollector {
     const cached = this.meta.get(filePath);
     if (cached !== undefined) return cached ?? undefined;
     const cwd = parseCodexCwd(await readHead(filePath, 8 * 1024));
-    this.meta.set(filePath, cwd);
+    // Only a successful read is worth remembering. readHead returns "" for a transient EMFILE or
+    // EBUSY just as it does for a genuinely absent cwd, and this cache never expires by content —
+    // so caching the failure would cost that session its project name for its whole lifetime.
+    if (cwd !== null) this.meta.set(filePath, cwd);
     return cwd ?? undefined;
   }
 

@@ -40,6 +40,16 @@ const APP_ENTRYPOINTS: Record<string, string> = {
 
 const MAX_ANCESTRY_DEPTH = 12;
 
+/**
+ * Whether there is anything to raise for this session. Collectors that read a log file rather than
+ * a live process record no pid, and a key must not offer an action it cannot perform.
+ */
+export function isFocusable(session: SessionSnapshot | null | undefined): boolean {
+  if (!session || process.platform !== "darwin") return false;
+  if (APP_ENTRYPOINTS[String(session.entrypoint || "")]) return true;
+  return Number.isInteger(session.pid) && Number(session.pid) > 0;
+}
+
 export async function focusSession(session: SessionSnapshot | null | undefined): Promise<FocusResult> {
   if (process.platform !== "darwin") return { focused: false, detail: "focus is implemented for macOS only" };
   if (!session) return { focused: false, detail: "no session to focus" };

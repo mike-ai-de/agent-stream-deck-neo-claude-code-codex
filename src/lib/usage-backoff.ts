@@ -22,8 +22,8 @@ export interface BackoffState {
 
 const EMPTY: BackoffState = { retryAt: 0, failures: 0 };
 
-// A stale deadline from a previous era should not lock usage out indefinitely.
-const MAX_BACKOFF_MS = 6 * 60 * 60_000;
+/** Upper bound on any wait, however it was arrived at. Shared with the collector. */
+export const MAX_BACKOFF_MS = 6 * 60 * 60_000;
 
 function backoffFile(dir = configDir()): string {
   return path.join(dir, "usage-backoff.json");

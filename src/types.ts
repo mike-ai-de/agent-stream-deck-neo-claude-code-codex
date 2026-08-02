@@ -33,6 +33,8 @@ export interface UsageSnapshot {
   costUsd?: number;
   updatedAt: number;
   error: string | null;
+  /** When the collector will next attempt a refresh; set while it is deliberately holding off. */
+  retryAt?: number | null;
 }
 
 export interface ProviderSnapshot {

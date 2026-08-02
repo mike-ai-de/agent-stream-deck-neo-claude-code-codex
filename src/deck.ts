@@ -157,9 +157,12 @@ export class NeoAgentDeck {
       let buffers: Awaited<ReturnType<typeof renderDeckBuffers>>;
       try {
         const snapshot = await this.dashboard.collect(forceUsage);
-        // Announce before drawing: the notification is the point of the feature when you are not
-        // looking at the deck, and a render failure should not swallow it.
-        await this.notifier.handle(snapshot);
+        // Not awaited: osascript can take seconds, and this runs inside the render loop with
+        // `rendering` held, which would blank the deck and swallow key presses for that whole time.
+        // The notifier absorbs its own errors, so nothing is lost by letting it finish on its own.
+        void this.notifier.handle(snapshot).catch((error) => {
+          console.warn(`Notification failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
         const page = this.dashboard.state.data.infoPage;
         buffers = await renderDeckBuffers(snapshot, page, this.dashboard.config);
       } catch (error) {

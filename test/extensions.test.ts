@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { missingScope, usageErrorMessage } from "../src/collectors/claude.js";
+import { backoffWaitMs, missingScope, usageErrorMessage } from "../src/collectors/claude.js";
 import { parseCodexCwd } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, sessionSlot, type DeckConfig } from "../src/config.js";
 import { pickPrimary, rankSessions } from "../src/dashboard.js";
 import { actionForControl } from "../src/input.js";
+import { isWellFormedToken, redactTokens } from "../src/lib/claude-auth.js";
+import { isFocusable } from "../src/lib/focus.js";
 import { AttentionNotifier } from "../src/lib/notify.js";
-import { clearBackoff, readBackoff, writeBackoff } from "../src/lib/usage-backoff.js";
+import { clearBackoff, MAX_BACKOFF_MS, readBackoff, writeBackoff } from "../src/lib/usage-backoff.js";
 import { formatCountdown, projectLabel } from "../src/lib/util.js";
-import { renderProviderKey, renderSessionKey, renderUsageKey, usageLevelFor } from "../src/render.js";
+import { leadingWindow, renderProviderKey, renderSessionKey, renderUsageKey, soonestReset, usageLevelFor } from "../src/render.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "../src/types.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -84,6 +86,14 @@ describe("project labels", () => {
     expect(projectLabel("/Users/me", "claude-49")).toBe("claude-49");
     expect(projectLabel(undefined, "claude-49")).toBe("claude-49");
     expect(projectLabel("/", undefined)).toBeNull();
+  });
+
+  it("treats a Windows or WSL home directory as no project either", () => {
+    // The account name is not a project, and putting it on a key also puts it in the notification.
+    expect(projectLabel("C:\\Users\\mike", "codex-3")).toBe("codex-3");
+    expect(projectLabel("\\\\wsl$\\Ubuntu\\home\\mike", "codex-3")).toBe("codex-3");
+    expect(projectLabel("C:\\Users\\mike\\code\\api")).toBe("api");
+    expect(projectLabel("\\\\wsl$\\Ubuntu\\home\\mike\\api")).toBe("api");
   });
 
   it("truncates to fit a key", () => {
@@ -186,11 +196,16 @@ describe("status key detail line", () => {
 });
 
 describe("attention notifier", () => {
-  const attention = () => providerView({
-    state: "attention",
-    attentionCount: 1,
-    primary: session({ state: "attention", label: "MediLog" })
-  });
+  const waiting = (key = "claude:a", label = "MediLog") => session({ key, state: "attention", label });
+  const attention = (...keys: string[]) => {
+    const sessions = (keys.length ? keys : ["claude:a"]).map((key) => waiting(key));
+    return providerView({
+      state: "attention",
+      attentionCount: sessions.length,
+      sessions,
+      primary: sessions[0]
+    });
+  };
 
   it("stays silent on the first pass so a restart announces nothing", async () => {
     const sent: string[] = [];
@@ -220,6 +235,16 @@ describe("attention notifier", () => {
 
     await notifier.handle(snapshotWith(providerView()), NOW + 90_000);
     expect(await notifier.handle(snapshotWith(attention()), NOW + 91_000)).toEqual(["claude"]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("announces a second session on a provider that is already waiting", async () => {
+    const sent: string[] = [];
+    const notifier = new AttentionNotifier(DEFAULT_CONFIG, async (title) => void sent.push(title));
+    await notifier.handle(snapshotWith(providerView()), NOW);
+    await notifier.handle(snapshotWith(attention("claude:a")), NOW + 1_000);
+    // The provider never leaves "attention" here; only a per-session edge can catch this.
+    expect(await notifier.handle(snapshotWith(attention("claude:a", "claude:b")), NOW + 70_000)).toEqual(["claude"]);
     expect(sent).toHaveLength(2);
   });
 
@@ -334,6 +359,97 @@ describe("usage scope errors", () => {
     expect(message).toContain("user:profile");
     expect(message).toContain("/login");
     expect(message).not.toContain("retrying in");
+  });
+});
+
+describe("backoff ladder", () => {
+  const MIN = 60_000;
+
+  it("starts at the first rung rather than skipping it", () => {
+    expect(backoffWaitMs(1, null)).toBe(5 * MIN);
+    expect(backoffWaitMs(2, null)).toBe(10 * MIN);
+    expect(backoffWaitMs(3, null)).toBe(20 * MIN);
+    expect(backoffWaitMs(4, null)).toBe(40 * MIN);
+    expect(backoffWaitMs(5, null)).toBe(60 * MIN);
+  });
+
+  it("holds at the last rung however many failures accumulate", () => {
+    expect(backoffWaitMs(6, null)).toBe(60 * MIN);
+    expect(backoffWaitMs(500, null)).toBe(60 * MIN);
+  });
+
+  it("honours a longer Retry-After but never beyond the persisted cap", () => {
+    expect(backoffWaitMs(1, 30 * MIN)).toBe(30 * MIN);
+    expect(backoffWaitMs(1, 1 * MIN)).toBe(5 * MIN);
+    // A 24-hour Retry-After would otherwise outlive what readBackoff will reload.
+    expect(backoffWaitMs(1, 24 * 60 * MIN)).toBe(MAX_BACKOFF_MS);
+  });
+});
+
+describe("token hygiene", () => {
+  it("redacts anything token-shaped from text that may be printed", () => {
+    const leaked = 'Headers.append: "Bearer sk-ant-oat01-SECRETVALUE123" is invalid';
+    expect(redactTokens(leaked)).toBe('Headers.append: "Bearer sk-ant-…" is invalid');
+    expect(redactTokens(leaked)).not.toContain("SECRETVALUE123");
+  });
+
+  it("leaves ordinary error text alone", () => {
+    expect(redactTokens("Claude usage HTTP 403")).toBe("Claude usage HTTP 403");
+  });
+
+  it("rejects tokens that could not be an HTTP header value", () => {
+    expect(isWellFormedToken("sk-ant-oat01-abc")).toBe(true);
+    // An interior newline survives trim() and is what makes fetch quote the value back.
+    expect(isWellFormedToken("sk-ant-oat01-abc\nnote")).toBe(false);
+    expect(isWellFormedToken("sk-ant oat01")).toBe(false);
+    expect(isWellFormedToken("")).toBe(false);
+  });
+});
+
+describe("usage window selection", () => {
+  const window = (label: string, percent?: number, resetsAt: number | null = null) => ({ label, percent, resetsAt });
+
+  it("speaks for the window closest to its limit, not the last one", () => {
+    const windows = [window("5h", 99), window("7d", 30)];
+    expect(leadingWindow(windows)?.label).toBe("5h");
+  });
+
+  it("falls back to the last window when none are quotas", () => {
+    const windows = [window("24h", undefined), window("7d", undefined)];
+    expect(leadingWindow(windows)?.label).toBe("7d");
+    expect(leadingWindow([])).toBeUndefined();
+  });
+
+  it("picks the soonest reset across all windows", () => {
+    const windows = [window("7d", 30, NOW + 86_400_000), window("5h", 99, NOW + 600_000)];
+    expect(soonestReset(windows)?.label).toBe("5h");
+    expect(soonestReset([window("5h", 1)])).toBeUndefined();
+  });
+
+  it("warns on the 5h window even when the weekly one is calm", async () => {
+    const near: UsageSnapshot = { provider: "claude", windows: [window("5h", 99), window("7d", 10)], updatedAt: 1, error: null };
+    const calm: UsageSnapshot = { provider: "claude", windows: [window("5h", 10), window("7d", 10)], updatedAt: 1, error: null };
+    expect((await renderUsageKey(near, DEFAULT_CONFIG)).equals(await renderUsageKey(calm, DEFAULT_CONFIG))).toBe(false);
+    expect(usageLevelFor(leadingWindow(near.windows)?.percent, DEFAULT_CONFIG)).toBe("critical");
+  });
+});
+
+describe("focusability", () => {
+  it("accepts a session with a live process or a known app entry point", () => {
+    expect(isFocusable(session({ pid: 1234 }))).toBe(true);
+    expect(isFocusable(session({ entrypoint: "claude-desktop" }))).toBe(true);
+  });
+
+  it("rejects sessions with nothing to raise, which is every Codex session today", () => {
+    expect(isFocusable(session({ provider: "codex" }))).toBe(false);
+    expect(isFocusable(session({ pid: 0 }))).toBe(false);
+    expect(isFocusable(null)).toBe(false);
+  });
+
+  it("does not offer to open a window it cannot raise", async () => {
+    const raisable = await renderSessionKey(session({ state: "attention", label: "MediLog", pid: 1234 }), 0);
+    const notRaisable = await renderSessionKey(session({ state: "attention", label: "MediLog" }), 0);
+    expect(raisable.equals(notRaisable)).toBe(false);
   });
 });
 

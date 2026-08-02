@@ -46,7 +46,10 @@ function directoryName(cwd?: string): string | null {
   if (UNINFORMATIVE_DIRECTORIES.has(trimmed)) return null;
   const name = trimmed.split(/[/\\]/).pop() || "";
   if (!name || UNINFORMATIVE_DIRECTORIES.has(name)) return null;
-  // A session started in the home directory is not a project either.
-  if (/^\/(Users|home)\/[^/]+$/.test(trimmed)) return null;
+  // A session started in the home directory is not a project either. Covers POSIX, Windows and
+  // WSL-through-UNC paths, all of which this project supports.
+  if (/^\/(Users|home)\/[^/]+$/i.test(trimmed)) return null;
+  if (/^[A-Za-z]:\\Users\\[^\\]+$/i.test(trimmed)) return null;
+  if (/\\(Users|home)\\[^\\]+$/i.test(trimmed) && /^\\\\wsl/i.test(trimmed)) return null;
   return name;
 }

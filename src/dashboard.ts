@@ -71,10 +71,10 @@ export class Dashboard {
 const STATE_ORDER: Record<SessionSnapshot["state"], number> = { attention: 0, working: 1, idle: 2 };
 
 /**
- * Ranks sessions by urgency, then recency. Only open sessions qualify: a slot exists to be tapped,
- * and there is nothing to raise for a session that has already ended. Slot assignment must be
- * stable frame to frame — a key that reshuffles under your finger is worse than no key — so ties
- * break on the session key, which does not change while a session lives.
+ * Ranks sessions by urgency, then recency, and keeps the ones worth tapping: open, or still
+ * asking for you. Ordering is deliberately not pinned — the most urgent session should hold slot 1
+ * even if that means a reshuffle — but equal timestamps break on the session key so the order is at
+ * least deterministic rather than dependent on collector iteration order.
  */
 export function rankSessions(sessions: SessionSnapshot[]): SessionSnapshot[] {
   return sessions

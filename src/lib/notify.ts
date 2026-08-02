@@ -15,12 +15,13 @@ const PROVIDER_TITLES: Record<Provider, string> = {
 const RENOTIFY_INTERVAL_MS = 60_000;
 
 /**
- * Fires a desktop notification when a provider newly starts waiting on you. State lives here so
- * the deck loop stays a pure render pass; it is per-provider so two agents finishing together
- * produce two distinct messages rather than one merged count.
+ * Fires a desktop notification when a session newly starts waiting on you. State lives here so the
+ * deck loop stays a pure render pass. Edges are tracked per session key, so a second agent asking
+ * for you while a first is still unacknowledged is announced rather than swallowed; the cooldown
+ * that follows is per provider, which bounds how noisy a flapping backend can get.
  */
 export class AttentionNotifier {
-  private readonly wasAttention = new Map<Provider, boolean>();
+  private readonly waitingKeys = new Map<Provider, Set<string>>();
   private readonly lastNotifiedAt = new Map<Provider, number>();
   private permissionWarned = false;
   private primed = false;
@@ -44,17 +45,22 @@ export class AttentionNotifier {
 
     for (const provider of Object.keys(snapshot.providers) as Provider[]) {
       const view = snapshot.providers[provider];
-      const attention = view.state === "attention";
-      const previous = this.wasAttention.get(provider) ?? false;
-      this.wasAttention.set(provider, attention);
+      const waiting = view.sessions.filter((session) => session.state === "attention");
+      const previous = this.waitingKeys.get(provider) ?? new Set<string>();
+      const current = new Set(waiting.map((session) => session.key));
+      this.waitingKeys.set(provider, current);
 
-      if (seeding || !attention || previous) continue;
+      // Edge per session, not per provider: with one session already waiting the provider never
+      // leaves "attention", so a second one starting to wait would otherwise be silent.
+      const fresh = waiting.filter((session) => !previous.has(session.key));
+      if (seeding || !fresh.length) continue;
       if (!this.config.notifyOnAttention) continue;
       if (now - (this.lastNotifiedAt.get(provider) ?? 0) < RENOTIFY_INTERVAL_MS) continue;
 
       this.lastNotifiedAt.set(provider, now);
-      const where = view.primary?.label ? ` · ${view.primary.label}` : "";
-      await this.deliver(`${PROVIDER_TITLES[provider]}${where}`, "Waiting for you");
+      const label = fresh[0].label;
+      const extra = fresh.length > 1 ? ` (+${fresh.length - 1})` : "";
+      await this.deliver(`${PROVIDER_TITLES[provider]}${label ? ` · ${label}` : ""}${extra}`, "Waiting for you");
       fired.push(provider);
     }
     return fired;
@@ -80,11 +86,12 @@ export class AttentionNotifier {
     }
 
     if (!this.config.attentionSound) return;
-    try {
-      await execFileAsync("/usr/bin/afplay", [`/System/Library/Sounds/${this.config.attentionSound}.aiff`], { timeout: 5_000 });
-    } catch {
-      // A missing or renamed system sound must not interrupt the render loop.
-    }
+    // Not awaited: the default sound runs about 1.5s and this sits inside the render loop, so
+    // waiting for it would blank the deck for the length of the chime.
+    void execFileAsync("/usr/bin/afplay", [`/System/Library/Sounds/${this.config.attentionSound}.aiff`], { timeout: 10_000 })
+      .catch(() => {
+        // A missing or renamed system sound must not interrupt the render loop.
+      });
   }
 }
 

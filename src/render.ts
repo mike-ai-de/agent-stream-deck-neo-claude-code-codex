@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { DEFAULT_CONFIG, sessionSlot, type DeckConfig, type KeyModule } from "./config.js";
+import { isFocusable } from "./lib/focus.js";
 import { formatCountdown } from "./lib/util.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot, UsageWindow } from "./types.js";
 
@@ -27,6 +28,24 @@ const usageLevels = {
 };
 
 type UsageLevel = "normal" | "warn" | "critical";
+
+/**
+ * The window a single key should speak for: the one closest to its limit. Taking the last window
+ * instead means a 5-hour quota at 99% hides behind a weekly one at 30% — the key stays calm at
+ * exactly the moment it should not.
+ */
+export function leadingWindow(windows: readonly UsageWindow[]): UsageWindow | undefined {
+  const quotas = windows.filter((window) => typeof window.percent === "number");
+  if (!quotas.length) return windows.at(-1);
+  return quotas.reduce((worst, window) => (Number(window.percent) > Number(worst.percent) ? window : worst));
+}
+
+/** The next window to roll over, across all of them. */
+export function soonestReset(windows: readonly UsageWindow[]): UsageWindow | undefined {
+  return windows
+    .filter((window) => typeof window.resetsAt === "number")
+    .sort((a, b) => Number(a.resetsAt) - Number(b.resetsAt))[0];
+}
 
 export function usageLevelFor(percent: number | undefined, config: DeckConfig): UsageLevel {
   if (typeof percent !== "number") return "normal";
@@ -85,7 +104,9 @@ export async function renderSessionKey(session: SessionSnapshot | null, slot: nu
   const label = session.label || session.provider.toUpperCase();
   // Long repo names need smaller type; the key is only 96px across.
   const labelSize = label.length > 11 ? 10 : label.length > 8 ? 12 : 14;
-  const footer = session.state === "attention" ? "tap to open" : "tap to focus";
+  const footer = isFocusable(session)
+    ? (session.state === "attention" ? "tap to open" : "tap to focus")
+    : (session.state === "attention" ? "tap to acknowledge" : "no window to raise");
 
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${state.background}"/><circle cx="13" cy="13" r="4" fill="${state.accent}"/><text x="83" y="17" text-anchor="end" fill="${brand.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8" font-weight="800">${brand.name}</text><text x="48" y="47" text-anchor="middle" fill="#f3f6fa" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${labelSize}" font-weight="800">${escapeXml(label)}</text><text x="48" y="68" text-anchor="middle" fill="${state.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="900">${state.label}</text><text x="48" y="87" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
@@ -94,8 +115,11 @@ export async function renderProviderKey(provider: ProviderSnapshot, config: Deck
   const brand = brands[provider.provider];
   const state = states[provider.state];
   const detail = providerDetail(provider, config);
+  // Only promise to open a window when there is one to open; Codex and OpenCode sessions are read
+  // from log files and carry no process to raise.
+  const canFocus = config.focusOnTap && isFocusable(provider.primary);
   const footer = provider.state === "attention"
-    ? (config.focusOnTap ? "tap to open" : "tap to acknowledge")
+    ? (canFocus ? "tap to open" : "tap to acknowledge")
     : "live backend";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${state.background}"/><circle cx="13" cy="13" r="4" fill="${state.accent}"/><text x="48" y="24" text-anchor="middle" fill="#f3f6fa" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="54" text-anchor="middle" fill="${state.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="14" font-weight="900">${state.label}</text><text x="48" y="76" text-anchor="middle" fill="#c6d0dc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600">${escapeXml(detail)}</text><text x="48" y="89" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
@@ -121,7 +145,7 @@ function providerDetail(provider: ProviderSnapshot, config: DeckConfig): string 
 
 export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = DEFAULT_CONFIG): Promise<Buffer> {
   const brand = brands[usage.provider];
-  const primary = usage.windows.at(-1) || usage.windows[0];
+  const primary = leadingWindow(usage.windows);
   const isQuota = typeof primary?.percent === "number";
   const headline = primary ? formatUsageValue(primary) : "--";
   const label = primary?.label || "usage";
@@ -136,9 +160,13 @@ export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = 
   // A stale reading must not be dressed up in warning colours; it is not a live measurement.
   const theme = usage.error ? brand : palette;
 
-  const countdown = usage.error ? null : formatCountdown(primary?.resetsAt);
+  // The soonest reset, which is the deadline you can act on — and the one the InfoBar shows, so
+  // the two surfaces agree.
+  const countdown = usage.error ? null : formatCountdown(soonestReset(usage.windows)?.resetsAt);
+  // Do not offer a refresh the collector will refuse to perform.
+  const pausedFor = typeof usage.retryAt === "number" ? formatCountdown(usage.retryAt) : null;
   const footer = usage.error
-    ? (usage.windows.length ? "stale · tap refresh" : "data unavailable")
+    ? (usage.windows.length ? (pausedFor ? `stale · paused ${pausedFor}` : "stale · tap refresh") : "data unavailable")
     : countdown
       ? `${label} · ${countdown} left`
       : usage.provider === "opencode" ? `${formatCurrency(usage.costUsd || 0)} / 7d` : subtitle;
@@ -173,16 +201,15 @@ async function usageBar(usage: UsageSnapshot): Promise<Buffer> {
   const first = usage.windows[0] || { label: "--", value: 0, resetsAt: null };
   const second = usage.windows[1] || first;
   // The InfoBar has room for the exact wording, so it names the window that is resetting.
-  const soonest = usage.windows
-    .filter((window) => typeof window.resetsAt === "number")
-    .sort((a, b) => Number(a.resetsAt) - Number(b.resetsAt))[0];
+  const soonest = soonestReset(usage.windows);
   const countdown = usage.error ? null : formatCountdown(soonest?.resetsAt);
+  const pausedFor = typeof usage.retryAt === "number" ? formatCountdown(usage.retryAt) : null;
   const caption = usage.error
-    ? (usage.windows.length ? "last known · refresh failed" : "data unavailable")
+    ? (usage.windows.length ? (pausedFor ? `last known · retrying in ${pausedFor}` : "last known · refresh failed") : "data unavailable")
     : countdown
-      ? `${soonest.label} resets in ${countdown}`
+      ? `${soonest?.label ?? "quota"} resets in ${countdown}`
       : usage.provider === "opencode" ? "local token usage" : "live plan usage";
-  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="${brand.background}"/><circle cx="13" cy="12" r="4" fill="${brand.accent}"/><text x="23" y="17" fill="#f5f7fb" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">${brand.name}</text><text x="236" y="17" text-anchor="end" fill="#aeb9c8" font-family="-apple-system,sans-serif" font-size="8">${caption}</text>${usageMetric(12, 30, first, brand.accent)}${usageMetric(134, 30, second, brand.accent)}</svg>`, BAR_WIDTH, BAR_HEIGHT);
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="${brand.background}"/><circle cx="13" cy="12" r="4" fill="${brand.accent}"/><text x="23" y="17" fill="#f5f7fb" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">${brand.name}</text><text x="236" y="17" text-anchor="end" fill="#aeb9c8" font-family="-apple-system,sans-serif" font-size="8">${escapeXml(caption)}</text>${usageMetric(12, 30, first, brand.accent)}${usageMetric(134, 30, second, brand.accent)}</svg>`, BAR_WIDTH, BAR_HEIGHT);
 }
 
 function usageMetric(x: number, y: number, window: UsageWindow, accent: string): string {

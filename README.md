@@ -141,6 +141,11 @@ service. Missing keys fall back to the defaults below, so an older config file k
 | `notifyOnAttention` | `true` | Post a desktop notification when a session starts waiting. |
 | `attentionSound` | `"Submarine"` | A name from `/System/Library/Sounds`, or `null` for silence. |
 
+A usage key speaks for whichever window is closest to its limit, not the longest one: a 5-hour quota
+at 99% must not hide behind a weekly quota at 30%. The countdown shows the soonest reset, which is
+the same window the InfoBar names, so the two never disagree. While the collector is deliberately
+holding off after a refusal, the key says `paused` rather than offering a refresh it will decline.
+
 Usage keys and the InfoBar show the time remaining in the current quota window whenever the
 backend reports a reset time. A stale reading keeps its provider colour rather than a warning
 colour, so it is never mistaken for a live measurement.
@@ -152,13 +157,16 @@ time; until it is granted the tap still acknowledges and the reason is written t
 ### Session keys
 
 `session.1` through `session.4` each stand for one concrete session rather than a provider total.
-The list is ranked waiting first, then working, then idle, and by recency within each group; only
-open sessions qualify, since a slot exists to be tapped and a finished session has no window left
-to raise. Ties break on the session id, so a slot never reshuffles under your finger.
+The list is ranked waiting first, then working, then idle, and by recency within each group.
+Sessions that have finished are dropped, since a slot exists to be tapped. Ordering is not pinned —
+the most urgent session should hold slot 1 even when that means a reshuffle — but equal timestamps
+break on the session id so the order never depends on collector iteration order.
 
 Each key shows the project directory name and the session state, and a tap raises that session's
 window and acknowledges it. With several agents running in different repos, this answers "which one
-needs me, and take me there" in one press.
+needs me, and take me there" in one press. Only Claude Code sessions record a process to raise
+today; a Codex or OpenCode session reads from a log file, so its key says `tap to acknowledge`
+rather than promising a window it cannot bring forward.
 
 These are useful in place of modules for a provider you do not run. The layout here, for a machine
 with Claude Code and Codex but no OpenCode:
@@ -188,7 +196,9 @@ stored file. `npm run token:claude` checks a token against the endpoint while st
 shows up immediately rather than as a dashboard that quietly says "unavailable".
 
 A missing scope is a property of the token and cannot resolve by waiting, so the collector parks
-for four hours instead of retrying on the usual ladder, and storing a new token clears the wait.
+for four hours instead of retrying on the usual ladder. Storing a new token clears that wait for
+the running service too — the deadline lives in a file every process re-reads, not only in the
+memory of whichever one wrote it.
 
 Everything else works without this: session status, project labels, Codex usage and its reset
 countdown are all read locally.

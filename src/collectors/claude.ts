@@ -3,9 +3,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listJsonl, loadJson, processAlive, readTail, type FileStamp } from "../lib/files.js";
-import { readClaudeAccessToken } from "../lib/claude-auth.js";
+import { readClaudeAccessToken, redactTokens } from "../lib/claude-auth.js";
 import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
-import { clearBackoff, readBackoff, writeBackoff } from "../lib/usage-backoff.js";
+import { clearBackoff, MAX_BACKOFF_MS, readBackoff, writeBackoff } from "../lib/usage-backoff.js";
 import { claudeProjectsDirectory, claudeSessionsDirectory, wslDistributionFromPath } from "../platform.js";
 import type { PersistedState, SessionSnapshot, UsageSnapshot, UsageWindow } from "../types.js";
 
@@ -40,6 +40,18 @@ const USAGE_BACKOFF_STEPS = [5, 10, 20, 40, 60].map((minutes) => minutes * 60_00
 
 /** A scope the token will never grow into; wait long and rely on a new token to reset us. */
 const SCOPE_BACKOFF_MS = 4 * 60 * 60_000;
+
+/**
+ * How long to wait after `failures` consecutive refusals. The counter is 1-based and the ladder is
+ * 0-based, so the index is clamped rather than the counter — clamping the counter would both skip
+ * the first rung and make the reported attempt count wrong. Bounded above so a mistaken or hostile
+ * Retry-After cannot park usage beyond what a restart would honour: readBackoff discards any
+ * persisted deadline past the same cap, and the two must not disagree about the same event.
+ */
+export function backoffWaitMs(failures: number, retryAfterMs: number | null): number {
+  const rung = Math.min(Math.max(1, failures), USAGE_BACKOFF_STEPS.length) - 1;
+  return Math.min(MAX_BACKOFF_MS, Math.max(retryAfterMs ?? 0, USAGE_BACKOFF_STEPS[rung]));
+}
 
 /** Extracts the scope name from an Anthropic permission_error, e.g. "user:profile". */
 export function missingScope(detail: string): string | null {
@@ -111,7 +123,11 @@ export class ClaudeCollector {
     // tried yet and never will until the deadline passes.
     if (!fetching && now < this.usageBackoffUntil) {
       const minutes = Math.max(1, Math.round((this.usageBackoffUntil - now) / 60_000));
-      this.usage = { ...this.usage, error: `Claude usage paused after a rejected request; retrying in ${minutes}m` };
+      this.usage = {
+        ...this.usage,
+        error: `Claude usage paused after a rejected request; retrying in ${minutes}m`,
+        retryAt: this.usageBackoffUntil
+      };
     }
     const [sessions] = await Promise.all([
       this.readSessions(state),
@@ -122,12 +138,33 @@ export class ClaudeCollector {
 
   /**
    * A rejected token does not become valid by asking again sooner, and hammering a 429 only extends
-   * it. Once the API refuses us, the backoff window applies even to a forced refresh — a key press
-   * or a `doctor` run must not be a way to keep beating on a rate limit.
+   * it, so a refusal from the API holds even against a forced refresh — a key press or a `doctor`
+   * run must not be a way to keep beating on a rate limit. A transport failure is different: it
+   * never reached the API, so pressing the key may as well try again.
    */
   private shouldFetchUsage(now: number, forceUsage: boolean): boolean {
-    if (now < this.usageBackoffUntil) return false;
+    this.syncBackoff(now);
+    const refusedByApi = this.usageFailures > 0;
+    if (now < this.usageBackoffUntil && (refusedByApi || !forceUsage)) return false;
     return forceUsage || now - this.usageFetchedAt > USAGE_INTERVAL_MS;
+  }
+
+  /** True while the API itself is holding us off, as opposed to a local transport pause. */
+  refusedByApi(now = Date.now()): boolean {
+    return this.usageFailures > 0 && now < this.usageBackoffUntil;
+  }
+
+  /**
+   * Adopts a deadline another process wrote. Without this the long-running service would sit out
+   * its full wait even after `token:claude` stored a working token and cleared the file — the
+   * collector reads the file once, in its constructor. Only API-imposed waits are shared; a local
+   * transport pause is nobody else's business.
+   */
+  private syncBackoff(now: number): void {
+    if (this.usageFailures === 0) return;
+    const persisted = readBackoff(undefined, now);
+    this.usageBackoffUntil = persisted.retryAt;
+    this.usageFailures = persisted.failures;
   }
 
   private async readSessions(state: PersistedState): Promise<SessionSnapshot[]> {
@@ -220,7 +257,8 @@ export class ClaudeCollector {
         provider: "claude",
         windows: [toWindow("5h", session), toWindow("7d", weekly)],
         updatedAt: Date.now(),
-        error: null
+        error: null,
+        retryAt: null
       };
       this.usageFailures = 0;
       this.usageBackoffUntil = 0;
@@ -229,16 +267,30 @@ export class ClaudeCollector {
       // A transport failure (offline, DNS, timeout) has no status code and did not reach the API,
       // so it gets the gentle backoff rather than the escalating one.
       if (!this.usageBackoffUntil || this.usageBackoffUntil <= Date.now()) this.backOff(0, null);
-      this.usage = { ...this.usage, updatedAt: Date.now(), error: error instanceof Error ? error.message : String(error) };
+      // This string is rendered on a key and printed by `status` and `doctor`. Some errors quote
+      // their input back — fetch's header validation names the offending value — so redact before
+      // it can travel any further.
+      this.usage = {
+        ...this.usage,
+        updatedAt: Date.now(),
+        error: redactTokens(error instanceof Error ? error.message : String(error)),
+        retryAt: this.refusedByApi() ? this.usageBackoffUntil : null
+      };
     }
   }
 
   private backOff(status: number, retryAfterMs: number | null): void {
     const escalating = status === 401 || status === 403 || status === 429 || status >= 500;
-    this.usageFailures = escalating ? Math.min(this.usageFailures + 1, USAGE_BACKOFF_STEPS.length - 1) : 0;
-    const step = escalating ? USAGE_BACKOFF_STEPS[this.usageFailures] : USAGE_INTERVAL_MS;
-    this.usageBackoffUntil = Date.now() + Math.max(retryAfterMs ?? 0, step);
-    if (escalating) writeBackoff({ retryAt: this.usageBackoffUntil, failures: this.usageFailures });
+    if (!escalating) {
+      // Offline, DNS, timeout: the request never reached the API. Wait one normal interval and
+      // keep the failure count at zero so a forced refresh can still cut through.
+      this.usageFailures = 0;
+      this.usageBackoffUntil = Date.now() + USAGE_INTERVAL_MS;
+      return;
+    }
+    this.usageFailures += 1;
+    this.usageBackoffUntil = Date.now() + backoffWaitMs(this.usageFailures, retryAfterMs);
+    writeBackoff({ retryAt: this.usageBackoffUntil, failures: this.usageFailures });
   }
 }
 
