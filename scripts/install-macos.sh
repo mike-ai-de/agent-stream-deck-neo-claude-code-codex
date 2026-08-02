@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$HOME/.local/share/neo-agent-deck"
 PLIST="$HOME/Library/LaunchAgents/com.neo-agent-deck.plist"
-NODE_BIN="$(command -v node)"
+NODE_BIN="$(readlink -f "$(command -v node)" 2>/dev/null || command -v node)"
 
 cd "$ROOT"
 npm run build
@@ -34,8 +34,16 @@ plutil -create xml1 "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" "$PLIST"
 
 plutil -lint "$PLIST"
-if ! launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null; then
-  sleep 1
+bootstrapped=false
+for _attempt in 1 2 3; do
+  if launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null; then
+    bootstrapped=true
+    break
+  fi
+  # launchd can briefly retain a just-booted-out label and report EIO on an immediate reload.
+  sleep 2
+done
+if [[ "$bootstrapped" != true ]]; then
   launchctl bootstrap "gui/$UID" "$PLIST"
 fi
 launchctl kickstart -k "gui/$UID/com.neo-agent-deck"

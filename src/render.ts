@@ -101,7 +101,7 @@ export async function renderSessionKey(session: SessionSnapshot | null, slot: nu
 
   const brand = brands[session.provider];
   const state = states[session.state];
-  const label = session.label || session.provider.toUpperCase();
+  const label = session.label || `SESSION ${session.id.slice(-6)}`;
   // Long repo names need smaller type; the key is only 96px across.
   const labelSize = label.length > 11 ? 10 : label.length > 8 ? 12 : 14;
   const footer = isFocusable(session)
@@ -115,8 +115,7 @@ export async function renderProviderKey(provider: ProviderSnapshot, config: Deck
   const brand = brands[provider.provider];
   const state = states[provider.state];
   const detail = providerDetail(provider, config);
-  // Only promise to open a window when there is one to open; Codex and OpenCode sessions are read
-  // from log files and carry no process to raise.
+  // Only promise to open a window when there is one to open.
   const canFocus = config.focusOnTap && isFocusable(provider.primary);
   const footer = provider.state === "attention"
     ? (canFocus ? "tap to open" : "tap to acknowledge")

@@ -2,7 +2,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionSnapshot } from "../types.js";
 
-const execFileAsync = promisify(execFile);
+type FocusExecResult = { stdout: string; stderr: string };
+export type FocusExec = (file: string, args: readonly string[], options: { timeout: number }) => Promise<FocusExecResult>;
+const execFileAsync = promisify(execFile) as unknown as FocusExec;
+
+export interface FocusDependencies {
+  platform?: NodeJS.Platform;
+  execute?: FocusExec;
+}
 
 export interface FocusResult {
   focused: boolean;
@@ -35,7 +42,8 @@ const TERMINAL_APPS: Record<string, string> = {
 
 /** Entry points that are an application window rather than a terminal session. */
 const APP_ENTRYPOINTS: Record<string, string> = {
-  "claude-desktop": "Claude"
+  "claude-desktop": "Claude",
+  "codex-desktop": "ChatGPT"
 };
 
 const MAX_ANCESTRY_DEPTH = 12;
@@ -44,37 +52,39 @@ const MAX_ANCESTRY_DEPTH = 12;
  * Whether there is anything to raise for this session. Collectors that read a log file rather than
  * a live process record no pid, and a key must not offer an action it cannot perform.
  */
-export function isFocusable(session: SessionSnapshot | null | undefined): boolean {
-  if (!session || process.platform !== "darwin") return false;
+export function isFocusable(session: SessionSnapshot | null | undefined, platform = process.platform): boolean {
+  if (!session || platform !== "darwin") return false;
   if (APP_ENTRYPOINTS[String(session.entrypoint || "")]) return true;
   return Number.isInteger(session.pid) && Number(session.pid) > 0;
 }
 
-export async function focusSession(session: SessionSnapshot | null | undefined): Promise<FocusResult> {
-  if (process.platform !== "darwin") return { focused: false, detail: "focus is implemented for macOS only" };
+export async function focusSession(session: SessionSnapshot | null | undefined, dependencies: FocusDependencies = {}): Promise<FocusResult> {
+  const platform = dependencies.platform ?? process.platform;
+  const execute = dependencies.execute ?? execFileAsync;
+  if (platform !== "darwin") return { focused: false, detail: "focus is implemented for macOS only" };
   if (!session) return { focused: false, detail: "no session to focus" };
 
   const appForEntrypoint = APP_ENTRYPOINTS[String(session.entrypoint || "")];
-  if (appForEntrypoint) return activateApp(appForEntrypoint);
+  if (appForEntrypoint) return activateApp(appForEntrypoint, execute);
 
   if (!Number.isInteger(session.pid) || Number(session.pid) <= 0) {
     return { focused: false, detail: "session records no process id" };
   }
 
-  const terminal = await findTerminalAncestor(Number(session.pid));
+  const terminal = await findTerminalAncestor(Number(session.pid), execute);
   if (!terminal) return { focused: false, detail: "no known terminal in the process ancestry" };
 
-  const tty = await ttyForPid(Number(session.pid));
-  if (tty && terminal === "Terminal") return activateTerminalTab(tty);
-  if (tty && terminal === "iTerm") return activateITermSession(tty);
-  return activateApp(terminal);
+  const tty = await ttyForPid(Number(session.pid), execute);
+  if (tty && terminal === "Terminal") return activateTerminalTab(tty, execute);
+  if (tty && terminal === "iTerm") return activateITermSession(tty, execute);
+  return activateApp(terminal, execute);
 }
 
 /** Walks up the parent chain until it hits a process we recognise as a terminal. */
-async function findTerminalAncestor(pid: number): Promise<string | null> {
+async function findTerminalAncestor(pid: number, execute: FocusExec): Promise<string | null> {
   let current = pid;
   for (let depth = 0; depth < MAX_ANCESTRY_DEPTH && current > 1; depth += 1) {
-    const parent = await parentOf(current);
+    const parent = await parentOf(current, execute);
     if (!parent) return null;
     const mapped = TERMINAL_APPS[parent.command];
     if (mapped) return mapped;
@@ -83,9 +93,9 @@ async function findTerminalAncestor(pid: number): Promise<string | null> {
   return null;
 }
 
-async function parentOf(pid: number): Promise<{ pid: number; command: string } | null> {
+async function parentOf(pid: number, execute: FocusExec): Promise<{ pid: number; command: string } | null> {
   try {
-    const { stdout } = await execFileAsync("/bin/ps", ["-o", "ppid=,comm=", "-p", String(pid)], { timeout: 2_000 });
+    const { stdout } = await execute("/bin/ps", ["-o", "ppid=,comm=", "-p", String(pid)], { timeout: 2_000 });
     const line = stdout.trim();
     if (!line) return null;
     const match = line.match(/^\s*(\d+)\s+(.*)$/);
@@ -98,9 +108,9 @@ async function parentOf(pid: number): Promise<{ pid: number; command: string } |
   }
 }
 
-async function ttyForPid(pid: number): Promise<string | null> {
+async function ttyForPid(pid: number, execute: FocusExec): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("/bin/ps", ["-o", "tty=", "-p", String(pid)], { timeout: 2_000 });
+    const { stdout } = await execute("/bin/ps", ["-o", "tty=", "-p", String(pid)], { timeout: 2_000 });
     const value = stdout.trim();
     if (!value || value === "??") return null;
     const device = value.startsWith("/dev/") ? value : `/dev/${value}`;
@@ -111,11 +121,11 @@ async function ttyForPid(pid: number): Promise<string | null> {
   }
 }
 
-async function activateApp(app: string): Promise<FocusResult> {
-  return runAppleScript(`tell application "${app}" to activate`, `raised ${app}`);
+async function activateApp(app: string, execute: FocusExec): Promise<FocusResult> {
+  return runAppleScript(`tell application "${app}" to activate`, `raised ${app}`, execute);
 }
 
-async function activateTerminalTab(tty: string): Promise<FocusResult> {
+async function activateTerminalTab(tty: string, execute: FocusExec): Promise<FocusResult> {
   const script = [
     `tell application "Terminal"`,
     `  activate`,
@@ -131,10 +141,10 @@ async function activateTerminalTab(tty: string): Promise<FocusResult> {
     `end tell`,
     `return "app-only"`
   ].join("\n");
-  return runAppleScript(script, `raised Terminal for ${tty}`);
+  return runAppleScript(script, `raised Terminal for ${tty}`, execute);
 }
 
-async function activateITermSession(tty: string): Promise<FocusResult> {
+async function activateITermSession(tty: string, execute: FocusExec): Promise<FocusResult> {
   const script = [
     `tell application "iTerm"`,
     `  activate`,
@@ -153,14 +163,14 @@ async function activateITermSession(tty: string): Promise<FocusResult> {
     `end tell`,
     `return "app-only"`
   ].join("\n");
-  return runAppleScript(script, `raised iTerm for ${tty}`);
+  return runAppleScript(script, `raised iTerm for ${tty}`, execute);
 }
 
 const OSASCRIPT_TIMEOUT_MS = 5_000;
 
-async function runAppleScript(script: string, detail: string): Promise<FocusResult> {
+async function runAppleScript(script: string, detail: string, execute: FocusExec): Promise<FocusResult> {
   try {
-    await execFileAsync("/usr/bin/osascript", ["-e", script], { timeout: OSASCRIPT_TIMEOUT_MS });
+    await execute("/usr/bin/osascript", ["-e", script], { timeout: OSASCRIPT_TIMEOUT_MS });
     return { focused: true, detail };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

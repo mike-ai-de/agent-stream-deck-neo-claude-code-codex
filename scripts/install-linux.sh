@@ -20,7 +20,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="${NEO_AGENT_DECK_INSTALL_ROOT:-$HOME/.local/share/neo-agent-deck}"
 UNIT_DIR="${NEO_AGENT_DECK_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 UNIT_FILE="$UNIT_DIR/neo-agent-deck.service"
-NODE_BIN="$(command -v node)"
+NODE_BIN="$(readlink -f "$(command -v node)" 2>/dev/null || command -v node)"
 STAGE="${APP_DIR}.next.$$"
 
 run_as_root() {

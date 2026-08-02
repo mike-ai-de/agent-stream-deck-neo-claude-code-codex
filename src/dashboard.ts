@@ -17,6 +17,7 @@ export class Dashboard {
   private readonly codex = new CodexCollector();
   private readonly opencode = new OpenCodeCollector();
   private snapshot: DashboardSnapshot | null = null;
+  private sessionSlots: string[] = [];
 
   constructor() {
     const dir = configDir();
@@ -25,9 +26,9 @@ export class Dashboard {
     this.state = new StateStore(dir, this.config.infoBar.length, restingIndex);
   }
 
-  async collect(forceUsage = false): Promise<DashboardSnapshot> {
+  async collect(forceUsage = false, backgroundUsage = false): Promise<DashboardSnapshot> {
     const [claude, codex, opencode] = await Promise.all([
-      this.claude.collect(this.state.data, forceUsage),
+      this.claude.collect(this.state.data, forceUsage, backgroundUsage),
       this.codex.collect(this.state.data),
       this.opencode.collect(this.state.data)
     ]);
@@ -37,13 +38,15 @@ export class Dashboard {
       opencode: summarizeProvider("opencode", opencode)
     };
     const all = Object.values(providers).flatMap((provider) => provider.sessions);
+    const ranked = stabilizeSessionSlots(all, this.sessionSlots, sessionSlotCount(this.config));
+    this.sessionSlots = ranked.slice(0, sessionSlotCount(this.config)).map((session) => session.key);
     this.snapshot = {
       providers,
       openCount: all.filter((session) => session.isOpen).length,
       workingCount: all.filter((session) => session.state === "working").length,
       attentionCount: all.filter((session) => session.state === "attention").length,
       updatedAt: Date.now(),
-      ranked: rankSessions(all)
+      ranked
     };
     return this.snapshot;
   }
@@ -83,6 +86,52 @@ export function rankSessions(sessions: SessionSnapshot[]): SessionSnapshot[] {
       STATE_ORDER[a.state] - STATE_ORDER[b.state]
       || b.activityAt - a.activityAt
       || a.key.localeCompare(b.key));
+}
+
+/**
+ * Keeps the sessions already under the user's fingers in their slots. A newcomer only displaces
+ * an incumbent when it is strictly more urgent; recency changes within one state never reshuffle
+ * the physical keys. Empty or vanished slots are filled by the normal ranking.
+ */
+export function stabilizeSessionSlots(sessions: SessionSnapshot[], previousKeys: readonly string[], slotCount: number): SessionSnapshot[] {
+  const ranked = rankSessions(sessions);
+  if (slotCount <= 0 || previousKeys.length === 0) return ranked;
+
+  const byKey = new Map(ranked.map((session) => [session.key, session]));
+  const slots: Array<SessionSnapshot | null> = Array.from({ length: slotCount }, (_, index) => byKey.get(previousKeys[index] || "") ?? null);
+  const assigned = new Set(slots.filter((session): session is SessionSnapshot => session !== null).map((session) => session.key));
+
+  for (const candidate of ranked) {
+    if (assigned.has(candidate.key)) continue;
+    const empty = slots.indexOf(null);
+    if (empty >= 0) {
+      slots[empty] = candidate;
+      assigned.add(candidate.key);
+      continue;
+    }
+    let replace = -1;
+    for (let index = slots.length - 1; index >= 0; index -= 1) {
+      const incumbent = slots[index];
+      if (incumbent && STATE_ORDER[candidate.state] < STATE_ORDER[incumbent.state]) {
+        if (replace < 0 || STATE_ORDER[incumbent.state] > STATE_ORDER[slots[replace]!.state]) replace = index;
+      }
+    }
+    if (replace >= 0) {
+      assigned.delete(slots[replace]!.key);
+      slots[replace] = candidate;
+      assigned.add(candidate.key);
+    }
+  }
+
+  const pinned = slots.filter((session): session is SessionSnapshot => session !== null);
+  return [...pinned, ...ranked.filter((session) => !assigned.has(session.key))];
+}
+
+function sessionSlotCount(config: DeckConfig): number {
+  return config.keys.reduce((count, module) => {
+    const match = module.match(/^session\.(\d+)$/);
+    return match ? Math.max(count, Number(match[1])) : count;
+  }, 0);
 }
 
 export function summarizeProvider(provider: Provider, result: CollectorResult): ProviderSnapshot {

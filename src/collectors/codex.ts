@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { extractUuid, listJsonl, readHead, readTail, type FileStamp } from "../lib/files.js";
 import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
 import { codexSessionsDirectory } from "../platform.js";
@@ -26,6 +28,15 @@ interface CodexCandidate extends SessionSnapshot {
   rateLimits: RateLimits | null;
 }
 
+export interface CodexMeta {
+  cwd: string | null;
+  entrypoint?: "codex-desktop";
+}
+
+type ExecFileResult = { stdout: string; stderr: string };
+type ExecFileFn = (file: string, args: readonly string[], options: { timeout: number; maxBuffer?: number }) => Promise<ExecFileResult>;
+const execFileAsync = promisify(execFile) as unknown as ExecFileFn;
+
 // A crashed Codex session leaves task_started as its final lifecycle event forever. Bound
 // "working" by file recency the way Claude/OpenCode do, so a dead session decays to idle instead
 // of being counted as a live agent indefinitely.
@@ -47,10 +58,17 @@ export class CodexCollector {
   private readonly cache = new Map<string, { size: number; mtimeMs: number; info: CodexTail }>();
   // session_meta is the first line of a rollout and never changes, so this cache never expires
   // by content; it is pruned alongside the tail cache when a file disappears.
-  private readonly meta = new Map<string, string | null>();
+  private readonly meta = new Map<string, CodexMeta>();
+  private processes = new Map<string, number>();
+  private processesScannedAt = 0;
+  private processRefresh: Promise<void> | null = null;
   private usage: UsageSnapshot = emptyUsage("codex", "loading");
 
-  constructor(private readonly sessionDirectory = codexSessionsDirectory()) {}
+  constructor(
+    private readonly sessionDirectory = codexSessionsDirectory(),
+    private readonly discoverProcesses: () => Promise<Map<string, number>> = discoverCodexProcesses,
+    private readonly readHeadFile: (file: string, bytes: number) => Promise<string> = readHead
+  ) {}
 
   async collect(state: PersistedState): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
     const now = Date.now();
@@ -68,7 +86,7 @@ export class CodexCollector {
       const key = `codex:${id}`;
       const inferred = inferCodexState(info, file.mtimeMs, state, now, key);
       // Only the sessions that can reach a key are worth a head read.
-      const cwd = inferred.state === "idle" ? undefined : await this.readCwd(file.path);
+      const meta = inferred.state === "idle" ? { cwd: null } : await this.readMeta(file.path);
       candidates.push({
         key,
         id,
@@ -77,10 +95,18 @@ export class CodexCollector {
         isOpen: inferred.state !== "idle",
         activityAt: file.mtimeMs,
         completionAt: inferred.completionAt,
-        cwd,
-        label: projectLabel(cwd) ?? undefined,
+        cwd: meta.cwd ?? undefined,
+        label: projectLabel(meta.cwd ?? undefined) ?? undefined,
+        entrypoint: meta.entrypoint,
         rateLimits: info.rateLimits
       });
+    }
+
+    if (candidates.some((candidate) => candidate.cwd && !candidate.entrypoint)) {
+      this.refreshCodexProcesses(now);
+      for (const candidate of candidates) {
+        if (candidate.cwd && !candidate.entrypoint) candidate.pid = this.processes.get(path.resolve(candidate.cwd));
+      }
     }
 
     const source = candidates.find((candidate) => candidate.rateLimits)?.rateLimits;
@@ -98,15 +124,30 @@ export class CodexCollector {
     return { sessions: candidates, usage: this.usage };
   }
 
-  private async readCwd(filePath: string): Promise<string | undefined> {
+  private async readMeta(filePath: string): Promise<CodexMeta> {
     const cached = this.meta.get(filePath);
-    if (cached !== undefined) return cached ?? undefined;
-    const cwd = parseCodexCwd(await readHead(filePath, 8 * 1024));
+    if (cached) return cached;
+    // Current Codex Desktop rollouts can put large base instructions in the first JSON record;
+    // 8 KiB truncates that record before cwd/originator can be parsed.
+    const head = await this.readHeadFile(filePath, 256 * 1024);
+    const meta = parseCodexMeta(head);
     // Only a successful read is worth remembering. readHead returns "" for a transient EMFILE or
     // EBUSY just as it does for a genuinely absent cwd, and this cache never expires by content —
     // so caching the failure would cost that session its project name for its whole lifetime.
-    if (cwd !== null) this.meta.set(filePath, cwd);
-    return cwd ?? undefined;
+    if (head && (meta.cwd !== null || meta.entrypoint)) this.meta.set(filePath, meta);
+    return meta;
+  }
+
+  /** Process lookup is best-effort and must never turn the local session poll into a slow frame. */
+  private refreshCodexProcesses(now: number): void {
+    if (this.processRefresh || now - this.processesScannedAt < 8_000) return;
+    this.processesScannedAt = now;
+    this.processRefresh = this.discoverProcesses()
+      .then((processes) => { this.processes = processes; })
+      .catch(() => {
+        // Process discovery is an enhancement; session collection must survive ps/lsof failures.
+      })
+      .finally(() => { this.processRefresh = null; });
   }
 
   private async readInfo(file: FileStamp, rank: number): Promise<CodexTail> {
@@ -181,19 +222,61 @@ export function parseCodexTail(text: string, fallbackMs: number): CodexTail {
 
 /** Pulls `cwd` out of the session_meta record that opens every rollout file. */
 export function parseCodexCwd(head: string): string | null {
+  return parseCodexMeta(head).cwd;
+}
+
+/** Pulls stable focus metadata out of the session_meta record that opens every rollout file. */
+export function parseCodexMeta(head: string): CodexMeta {
   for (const line of head.split("\n")) {
-    let event: { type?: string; payload?: { cwd?: string } };
+    let event: { type?: string; payload?: { cwd?: string; originator?: string } };
     try {
       event = JSON.parse(line) as typeof event;
     } catch {
       // The last line of a bounded head read is usually truncated.
       continue;
     }
-    if (event.type === "session_meta" && typeof event.payload?.cwd === "string") {
-      return event.payload.cwd || null;
+    if (event.type === "session_meta") {
+      return {
+        cwd: typeof event.payload?.cwd === "string" ? event.payload.cwd || null : null,
+        entrypoint: /codex desktop/i.test(String(event.payload?.originator || "")) ? "codex-desktop" : undefined
+      };
     }
   }
-  return null;
+  return { cwd: null };
+}
+
+/** Finds CLI Codex processes and indexes them by their kernel-reported working directory. */
+export async function discoverCodexProcesses(run: ExecFileFn = execFileAsync, platform = process.platform): Promise<Map<string, number>> {
+  if (platform !== "darwin") return new Map();
+  const { stdout } = await run("/bin/ps", ["-ww", "-axo", "pid=,comm="], { timeout: 2_000, maxBuffer: 2 * 1024 * 1024 });
+  const pids = parseCodexProcessList(stdout);
+  if (!pids.length) return new Map();
+  const result = await run("/usr/sbin/lsof", ["-a", "-d", "cwd", "-Fn", "-p", pids.join(",")], { timeout: 2_000, maxBuffer: 1024 * 1024 });
+  return parseCodexProcessCwds(result.stdout);
+}
+
+export function parseCodexProcessList(text: string): number[] {
+  const result: number[] = [];
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(.+?)\s*$/);
+    if (!match) continue;
+    const command = path.basename(match[2]);
+    if (command === "codex" || /^codex-(?:aarch64|x86_64)-/.test(command)) result.push(Number(match[1]));
+  }
+  return result;
+}
+
+export function parseCodexProcessCwds(text: string): Map<string, number> {
+  const result = new Map<string, number>();
+  let pid: number | null = null;
+  for (const line of text.split("\n")) {
+    if (/^p\d+$/.test(line)) pid = Number(line.slice(1));
+    else if (pid && line.startsWith("n") && line.length > 1) {
+      const cwd = path.resolve(line.slice(1));
+      if (!result.has(cwd)) result.set(cwd, pid);
+    }
+  }
+  return result;
 }
 
 export function usageFromRateLimits(rateLimits: RateLimits): UsageSnapshot {

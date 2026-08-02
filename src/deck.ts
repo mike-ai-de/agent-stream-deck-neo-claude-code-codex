@@ -156,7 +156,9 @@ export class NeoAgentDeck {
     try {
       let buffers: Awaited<ReturnType<typeof renderDeckBuffers>>;
       try {
-        const snapshot = await this.dashboard.collect(forceUsage);
+        // Session files are local and fast; the network usage refresh is started as a single-flight
+        // background job so a slow endpoint never holds the HID render/key lock.
+        const snapshot = await this.dashboard.collect(forceUsage, true);
         // Not awaited: osascript can take seconds, and this runs inside the render loop with
         // `rendering` held, which would blank the deck and swallow key presses for that whole time.
         // The notifier absorbs its own errors, so nothing is lost by letting it finish on its own.

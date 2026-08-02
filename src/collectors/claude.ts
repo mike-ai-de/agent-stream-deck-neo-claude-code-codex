@@ -100,6 +100,7 @@ export class ClaudeCollector {
   private usageFetchedAt = 0;
   private usageBackoffUntil: number;
   private usageFailures: number;
+  private usageRefresh: Promise<void> | null = null;
 
   constructor(
     private readonly sessionDirectory = claudeSessionsDirectory(),
@@ -112,7 +113,7 @@ export class ClaudeCollector {
     this.usageFailures = persisted.failures;
   }
 
-  async collect(state: PersistedState, forceUsage = false): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
+  async collect(state: PersistedState, forceUsage = false, backgroundUsage = false): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
     const now = Date.now();
     if (!this.projectFiles.length || now - this.scannedAt > 30_000) {
       this.projectFiles = await listJsonl(this.projectDirectory);
@@ -129,11 +130,22 @@ export class ClaudeCollector {
         retryAt: this.usageBackoffUntil
       };
     }
-    const [sessions] = await Promise.all([
-      this.readSessions(state),
-      fetching ? this.readUsage() : Promise.resolve()
-    ]);
+    const usageRefresh = fetching ? this.refreshUsage() : null;
+    const sessions = await this.readSessions(state);
+    if (usageRefresh) {
+      if (backgroundUsage) void usageRefresh.catch(() => {});
+      else await usageRefresh;
+    }
     return { sessions, usage: this.usage };
+  }
+
+  /** Keeps overlapping deck ticks and key presses from starting duplicate usage requests. */
+  private refreshUsage(): Promise<void> {
+    if (this.usageRefresh) return this.usageRefresh;
+    this.usageRefresh = this.readUsage().finally(() => {
+      this.usageRefresh = null;
+    });
+    return this.usageRefresh;
   }
 
   /**

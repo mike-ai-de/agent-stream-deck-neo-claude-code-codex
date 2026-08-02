@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { backoffWaitMs, missingScope, usageErrorMessage } from "../src/collectors/claude.js";
-import { parseCodexCwd } from "../src/collectors/codex.js";
+import { parseCodexCwd, parseCodexMeta, parseCodexProcessCwds, parseCodexProcessList } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, sessionSlot, type DeckConfig } from "../src/config.js";
-import { pickPrimary, rankSessions } from "../src/dashboard.js";
+import { pickPrimary, rankSessions, stabilizeSessionSlots } from "../src/dashboard.js";
 import { actionForControl } from "../src/input.js";
 import { isWellFormedToken, redactTokens } from "../src/lib/claude-auth.js";
 import { isFocusable } from "../src/lib/focus.js";
@@ -320,6 +320,25 @@ describe("session ranking and keys", () => {
     expect(input.map((s) => s.key)).toEqual(["b", "a"]);
   });
 
+  it("keeps same-state sessions in their physical slots when activity changes", () => {
+    const sessions = [
+      session({ key: "old-slot-1", state: "working", activityAt: NOW - 10_000 }),
+      session({ key: "old-slot-2", state: "working", activityAt: NOW })
+    ];
+    expect(stabilizeSessionSlots(sessions, ["old-slot-1", "old-slot-2"], 2).slice(0, 2).map((item) => item.key))
+      .toEqual(["old-slot-1", "old-slot-2"]);
+  });
+
+  it("lets a more urgent newcomer displace the least urgent incumbent", () => {
+    const sessions = [
+      session({ key: "working", state: "working" }),
+      session({ key: "idle", state: "idle" }),
+      session({ key: "waiting", state: "attention" })
+    ];
+    const keys = stabilizeSessionSlots(sessions, ["working", "idle"], 2).slice(0, 2).map((item) => item.key);
+    expect(keys).toEqual(["working", "waiting"]);
+  });
+
   it("maps session.N modules to zero-based slots and nothing else", () => {
     expect(sessionSlot("session.1")).toBe(0);
     expect(sessionSlot("session.4")).toBe(3);
@@ -510,6 +529,26 @@ describe("codex session metadata", () => {
   it("tolerates a truncated final line and a missing cwd", () => {
     expect(parseCodexCwd(`${JSON.stringify({ type: "session_meta", payload: {} })}\n{"type":"event_ms`)).toBeNull();
     expect(parseCodexCwd("")).toBeNull();
+  });
+
+  it("recognizes Codex Desktop without treating the originator as script input", () => {
+    const head = JSON.stringify({
+      type: "session_meta",
+      payload: { cwd: "/repo", originator: "Codex Desktop", base_instructions: { text: "x".repeat(32 * 1024) } }
+    });
+    expect(parseCodexMeta(head)).toEqual({ cwd: "/repo", entrypoint: "codex-desktop" });
+  });
+
+  it("parses only real Codex executables and maps lsof cwd records", () => {
+    const ps = [
+      "  10 /opt/bin/codex",
+      "  11 /opt/bin/codex-x86_64-apple-darwin",
+      "  12 /Applications/Codex (Renderer)",
+      "  13 /bin/zsh"
+    ].join("\n");
+    expect(parseCodexProcessList(ps)).toEqual([10, 11]);
+    expect(parseCodexProcessCwds("p10\nfcwd\nn/Users/me/repo\np11\nfcwd\nn/Users/me/other\n"))
+      .toEqual(new Map([["/Users/me/repo", 10], ["/Users/me/other", 11]]));
   });
 });
 
