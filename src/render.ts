@@ -89,7 +89,11 @@ async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, p
  * One concrete session: which project, what it is doing, and a tap that takes you there. This is
  * what turns "1 open" into an answer you can act on when several agents are running at once.
  */
-export async function renderSessionKey(session: SessionSnapshot | null, slot: number): Promise<Buffer> {
+export async function renderSessionKey(
+  session: SessionSnapshot | null,
+  slot: number,
+  platform: NodeJS.Platform = process.platform
+): Promise<Buffer> {
   if (!session) {
     return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="#14171f"/><text x="48" y="52" text-anchor="middle" fill="#39414f" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="13" font-weight="700">SLOT ${slot + 1}</text><text x="48" y="70" text-anchor="middle" fill="#2c333e" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8">no session</text></svg>`, KEY_SIZE, KEY_SIZE);
   }
@@ -99,7 +103,7 @@ export async function renderSessionKey(session: SessionSnapshot | null, slot: nu
   const label = session.label || `SESSION ${session.id.slice(-6)}`;
   // Long repo names need smaller type; the key is only 96px across.
   const labelSize = label.length > 11 ? 10 : label.length > 8 ? 12 : 14;
-  const footer = isFocusable(session)
+  const footer = isFocusable(session, platform)
     ? (session.state === "attention" ? "tap to open" : "tap to focus")
     : (session.state === "attention" ? "tap to acknowledge" : "no window to raise");
 

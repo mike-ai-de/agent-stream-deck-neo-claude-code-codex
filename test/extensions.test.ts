@@ -388,8 +388,8 @@ describe("usage window selection", () => {
 
 describe("focusability", () => {
   it("accepts a session with a live process or a known app entry point", () => {
-    expect(isFocusable(session({ pid: 1234 }))).toBe(true);
-    expect(isFocusable(session({ entrypoint: "claude-desktop" }))).toBe(true);
+    expect(isFocusable(session({ pid: 1234 }), "darwin")).toBe(true);
+    expect(isFocusable(session({ entrypoint: "claude-desktop" }), "darwin")).toBe(true);
   });
 
   it("rejects sessions with nothing to raise, which is every Codex session today", () => {
@@ -399,8 +399,8 @@ describe("focusability", () => {
   });
 
   it("does not offer to open a window it cannot raise", async () => {
-    const raisable = await renderSessionKey(session({ state: "attention", label: "SaleSync", pid: 1234 }), 0);
-    const notRaisable = await renderSessionKey(session({ state: "attention", label: "SaleSync" }), 0);
+    const raisable = await renderSessionKey(session({ state: "attention", label: "SaleSync", pid: 1234 }), 0, "darwin");
+    const notRaisable = await renderSessionKey(session({ state: "attention", label: "SaleSync" }), 0, "darwin");
     expect(raisable.equals(notRaisable)).toBe(false);
   });
 });
