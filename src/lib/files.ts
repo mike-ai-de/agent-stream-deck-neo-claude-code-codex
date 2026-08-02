@@ -46,6 +46,23 @@ export async function readTail(file: string, bytes: number): Promise<string> {
   }
 }
 
+export async function readHead(file: string, bytes: number): Promise<string> {
+  try {
+    const handle = await fs.promises.open(file, "r");
+    try {
+      const stat = await handle.stat();
+      const size = Math.min(stat.size, bytes);
+      const buffer = Buffer.alloc(size);
+      await handle.read(buffer, 0, size, 0);
+      return buffer.toString("utf8");
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
 export function loadJson<T>(file: string, fallback: T): T {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8")) as T;

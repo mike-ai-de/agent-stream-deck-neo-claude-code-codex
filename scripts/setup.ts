@@ -77,7 +77,9 @@ try {
   const restingPage = customize ? await promptRestingPage(rl, infoBar, current.restingPage) : current.restingPage;
   const brightness = customize ? await promptBrightness(rl, current.brightness) : current.brightness;
 
-  const cfg: DeckConfig = { brightness, keys, infoBar, restingPage };
+  // Spread the loaded config so options this wizard does not ask about (thresholds, notifications,
+  // focus-on-tap) survive a re-run instead of silently reverting to their defaults.
+  const cfg: DeckConfig = { ...current, brightness, keys, infoBar, restingPage };
   saveConfig(cfg);
   console.log();
   printResult(cfg);

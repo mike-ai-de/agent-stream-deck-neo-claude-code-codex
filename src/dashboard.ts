@@ -61,14 +61,25 @@ export class Dashboard {
 export function summarizeProvider(provider: Provider, result: CollectorResult): ProviderSnapshot {
   const workingCount = result.sessions.filter((session) => session.state === "working").length;
   const attentionCount = result.sessions.filter((session) => session.state === "attention").length;
+  const state = attentionCount > 0 ? "attention" : workingCount > 0 ? "working" : "idle";
   return {
     provider,
-    state: attentionCount > 0 ? "attention" : workingCount > 0 ? "working" : "idle",
+    state,
     sessions: result.sessions,
     usage: result.usage,
     openCount: result.sessions.filter((session) => session.isOpen).length,
     workingCount,
     attentionCount,
-    idleCount: result.sessions.filter((session) => session.state === "idle").length
+    idleCount: result.sessions.filter((session) => session.state === "idle").length,
+    primary: pickPrimary(result.sessions, state)
   };
+}
+
+/**
+ * The session a key stands for. Prefer one in the provider's own state — the key already says
+ * NEED YOU, so it should name the session that is waiting — and among equals take the most recent.
+ */
+export function pickPrimary(sessions: SessionSnapshot[], state: SessionSnapshot["state"]): SessionSnapshot | null {
+  const ranked = [...sessions].sort((a, b) => b.activityAt - a.activityAt);
+  return ranked.find((session) => session.state === state) ?? ranked[0] ?? null;
 }

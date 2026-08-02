@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { extractUuid, listJsonl, readTail, type FileStamp } from "../lib/files.js";
-import { clampPercent, emptyUsage } from "../lib/util.js";
+import { extractUuid, listJsonl, readHead, readTail, type FileStamp } from "../lib/files.js";
+import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
 import { codexSessionsDirectory } from "../platform.js";
 import type { PersistedState, SessionSnapshot, UsageSnapshot, UsageWindow } from "../types.js";
 
@@ -45,6 +45,9 @@ export class CodexCollector {
   private files: FileStamp[] = [];
   private scannedAt = 0;
   private readonly cache = new Map<string, { size: number; mtimeMs: number; info: CodexTail }>();
+  // session_meta is the first line of a rollout and never changes, so this cache never expires
+  // by content; it is pruned alongside the tail cache when a file disappears.
+  private readonly meta = new Map<string, string | null>();
   private usage: UsageSnapshot = emptyUsage("codex", "loading");
 
   constructor(private readonly sessionDirectory = codexSessionsDirectory()) {}
@@ -64,6 +67,8 @@ export class CodexCollector {
       const info = await this.readInfo(file, index);
       const key = `codex:${id}`;
       const inferred = inferCodexState(info, file.mtimeMs, state, now, key);
+      // Only the sessions that can reach a key are worth a head read.
+      const cwd = inferred.state === "idle" ? undefined : await this.readCwd(file.path);
       candidates.push({
         key,
         id,
@@ -72,6 +77,8 @@ export class CodexCollector {
         isOpen: inferred.state !== "idle",
         activityAt: file.mtimeMs,
         completionAt: inferred.completionAt,
+        cwd,
+        label: projectLabel(cwd) ?? undefined,
         rateLimits: info.rateLimits
       });
     }
@@ -84,8 +91,19 @@ export class CodexCollector {
     for (const key of this.cache.keys()) {
       if (!currentPaths.has(key)) this.cache.delete(key);
     }
+    for (const key of this.meta.keys()) {
+      if (!currentPaths.has(key)) this.meta.delete(key);
+    }
 
     return { sessions: candidates, usage: this.usage };
+  }
+
+  private async readCwd(filePath: string): Promise<string | undefined> {
+    const cached = this.meta.get(filePath);
+    if (cached !== undefined) return cached ?? undefined;
+    const cwd = parseCodexCwd(await readHead(filePath, 8 * 1024));
+    this.meta.set(filePath, cwd);
+    return cwd ?? undefined;
   }
 
   private async readInfo(file: FileStamp, rank: number): Promise<CodexTail> {
@@ -156,6 +174,23 @@ export function parseCodexTail(text: string, fallbackMs: number): CodexTail {
     if (type === "token_count" && event.payload?.rate_limits) rateLimits = event.payload.rate_limits;
   }
   return { life, lifeAt, rateLimits };
+}
+
+/** Pulls `cwd` out of the session_meta record that opens every rollout file. */
+export function parseCodexCwd(head: string): string | null {
+  for (const line of head.split("\n")) {
+    let event: { type?: string; payload?: { cwd?: string } };
+    try {
+      event = JSON.parse(line) as typeof event;
+    } catch {
+      // The last line of a bounded head read is usually truncated.
+      continue;
+    }
+    if (event.type === "session_meta" && typeof event.payload?.cwd === "string") {
+      return event.payload.cwd || null;
+    }
+  }
+  return null;
 }
 
 export function usageFromRateLimits(rateLimits: RateLimits): UsageSnapshot {

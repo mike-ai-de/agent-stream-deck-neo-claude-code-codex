@@ -9,6 +9,14 @@ export interface SessionSnapshot {
   isOpen: boolean;
   activityAt: number;
   completionAt: number;
+  /** Working directory of the session, when the provider records one. */
+  cwd?: string;
+  /** Short human label for the session; usually the project directory name. */
+  label?: string;
+  /** OS process id, when known. Used to raise the owning window. */
+  pid?: number;
+  /** How the agent was launched, e.g. "claude-desktop" or a terminal. */
+  entrypoint?: string;
 }
 
 export interface UsageWindow {
@@ -36,6 +44,12 @@ export interface ProviderSnapshot {
   workingCount: number;
   attentionCount: number;
   idleCount: number;
+  /**
+   * The session the key should speak for: the one waiting on you, else the one
+   * that is working, else the most recently active. Drives the project label and
+   * the focus action.
+   */
+  primary: SessionSnapshot | null;
 }
 
 export interface DashboardSnapshot {

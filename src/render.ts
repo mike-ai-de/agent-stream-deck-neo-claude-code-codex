@@ -1,5 +1,6 @@
 import sharp from "sharp";
-import type { DeckConfig, KeyModule } from "./config.js";
+import { DEFAULT_CONFIG, type DeckConfig, type KeyModule } from "./config.js";
+import { formatCountdown } from "./lib/util.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, UsageSnapshot, UsageWindow } from "./types.js";
 
 const KEY_SIZE = 96;
@@ -18,6 +19,22 @@ const states = {
   attention: { background: "#4a2b09", accent: "#ffb020", label: "NEED YOU" }
 };
 
+// Escalation tints for usage keys. They override the provider brand so a nearly exhausted quota
+// reads as a warning at a glance rather than as "the bar happens to be long".
+const usageLevels = {
+  warn: { background: "#40300d", accent: "#ffc247" },
+  critical: { background: "#45161a", accent: "#ff6b6b" }
+};
+
+type UsageLevel = "normal" | "warn" | "critical";
+
+export function usageLevelFor(percent: number | undefined, config: DeckConfig): UsageLevel {
+  if (typeof percent !== "number") return "normal";
+  if (percent >= config.usageCriticalPercent) return "critical";
+  if (percent >= config.usageWarnPercent) return "warn";
+  return "normal";
+}
+
 export async function renderDeckBuffers(snapshot: DashboardSnapshot, page: number, config: DeckConfig): Promise<Buffer[]> {
   const buffers: Buffer[] = [];
   for (let index = 0; index < 8; index += 1) {
@@ -30,17 +47,17 @@ export async function renderDeckBuffers(snapshot: DashboardSnapshot, page: numbe
 async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, page: number, config: DeckConfig): Promise<Buffer> {
   switch (module) {
     case "claude.status":
-      return renderProviderKey(snapshot.providers.claude);
+      return renderProviderKey(snapshot.providers.claude, config);
     case "codex.status":
-      return renderProviderKey(snapshot.providers.codex);
+      return renderProviderKey(snapshot.providers.codex, config);
     case "opencode.status":
-      return renderProviderKey(snapshot.providers.opencode);
+      return renderProviderKey(snapshot.providers.opencode, config);
     case "claude.usage":
-      return renderUsageKey(snapshot.providers.claude.usage);
+      return renderUsageKey(snapshot.providers.claude.usage, config);
     case "codex.usage":
-      return renderUsageKey(snapshot.providers.codex.usage);
+      return renderUsageKey(snapshot.providers.codex.usage, config);
     case "opencode.usage":
-      return renderUsageKey(snapshot.providers.opencode.usage);
+      return renderUsageKey(snapshot.providers.opencode.usage, config);
     case "summary":
       return renderSummaryKey(snapshot);
     case "info":
@@ -51,19 +68,36 @@ async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, p
   }
 }
 
-export async function renderProviderKey(provider: ProviderSnapshot): Promise<Buffer> {
+export async function renderProviderKey(provider: ProviderSnapshot, config: DeckConfig = DEFAULT_CONFIG): Promise<Buffer> {
   const brand = brands[provider.provider];
   const state = states[provider.state];
-  const detail = provider.state === "attention"
-    ? `${provider.attentionCount} attention`
-    : provider.state === "working"
-      ? `${provider.workingCount} active`
-      : `${provider.openCount} open`;
-  const footer = provider.state === "attention" ? "tap to acknowledge" : "live backend";
+  const detail = providerDetail(provider, config);
+  const footer = provider.state === "attention"
+    ? (config.focusOnTap ? "tap to open" : "tap to acknowledge")
+    : "live backend";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${state.background}"/><circle cx="13" cy="13" r="4" fill="${state.accent}"/><text x="48" y="24" text-anchor="middle" fill="#f3f6fa" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="54" text-anchor="middle" fill="${state.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="14" font-weight="900">${state.label}</text><text x="48" y="76" text-anchor="middle" fill="#c6d0dc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600">${escapeXml(detail)}</text><text x="48" y="89" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
 
-export async function renderUsageKey(usage: UsageSnapshot): Promise<Buffer> {
+/**
+ * The line under the state label. A project name answers "which one?", which matters more than a
+ * count once you have several sessions open; the count is appended only when it adds something.
+ */
+function providerDetail(provider: ProviderSnapshot, config: DeckConfig): string {
+  const relevantCount = provider.state === "attention"
+    ? provider.attentionCount
+    : provider.state === "working"
+      ? provider.workingCount
+      : provider.openCount;
+
+  const label = config.showProjectLabels ? provider.primary?.label : undefined;
+  if (!label) {
+    const noun = provider.state === "attention" ? "attention" : provider.state === "working" ? "active" : "open";
+    return `${relevantCount} ${noun}`;
+  }
+  return relevantCount > 1 ? `${label} +${relevantCount - 1}` : label;
+}
+
+export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = DEFAULT_CONFIG): Promise<Buffer> {
   const brand = brands[usage.provider];
   const primary = usage.windows.at(-1) || usage.windows[0];
   const isQuota = typeof primary?.percent === "number";
@@ -72,11 +106,24 @@ export async function renderUsageKey(usage: UsageSnapshot): Promise<Buffer> {
   const subtitle = usage.error && !usage.windows.length
     ? "data unavailable"
     : isQuota ? `${label} used` : `${label} tokens`;
-  const width = isQuota ? Math.round(70 * Number(primary?.percent) / 100) : 70;
+  // A full bar under "--" reads as "quota exhausted"; with no window there is nothing to fill.
+  const width = isQuota ? Math.round(70 * Number(primary?.percent) / 100) : primary ? 70 : 0;
+
+  const level = usageLevelFor(primary?.percent, config);
+  const palette = level === "normal" ? brand : usageLevels[level];
+  // A stale reading must not be dressed up in warning colours; it is not a live measurement.
+  const theme = usage.error ? brand : palette;
+
+  const countdown = usage.error ? null : formatCountdown(primary?.resetsAt);
   const footer = usage.error
     ? (usage.windows.length ? "stale · tap refresh" : "data unavailable")
-    : usage.provider === "opencode" ? `${formatCurrency(usage.costUsd || 0)} / 7d` : subtitle;
-  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${brand.background}"/><circle cx="14" cy="14" r="4" fill="${brand.accent}"/><text x="48" y="25" text-anchor="middle" fill="#f7fafc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="59" text-anchor="middle" fill="${brand.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="24" font-weight="800">${escapeXml(headline)}</text><rect x="13" y="69" width="70" height="6" rx="3" fill="#ffffff24"/><rect x="13" y="69" width="${Math.max(0, Math.min(70, width))}" height="6" rx="3" fill="${brand.accent}"/><text x="48" y="88" text-anchor="middle" fill="#bdc8d6" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9">${escapeXml(footer)}</text></svg>`, KEY_SIZE, KEY_SIZE);
+    : countdown
+      ? `${label} · ${countdown} left`
+      : usage.provider === "opencode" ? `${formatCurrency(usage.costUsd || 0)} / 7d` : subtitle;
+  // The countdown line is longer than the plain label, so it gets a smaller type size.
+  const footerSize = footer.length > 13 ? 8 : 9;
+
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${theme.background}"/><circle cx="14" cy="14" r="4" fill="${theme.accent}"/><text x="48" y="25" text-anchor="middle" fill="#f7fafc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="59" text-anchor="middle" fill="${theme.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="24" font-weight="800">${escapeXml(headline)}</text><rect x="13" y="69" width="70" height="6" rx="3" fill="#ffffff24"/><rect x="13" y="69" width="${Math.max(0, Math.min(70, width))}" height="6" rx="3" fill="${theme.accent}"/><text x="48" y="88" text-anchor="middle" fill="#bdc8d6" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${footerSize}">${escapeXml(footer)}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
 
 export async function renderSummaryKey(snapshot: DashboardSnapshot): Promise<Buffer> {
@@ -103,9 +150,16 @@ async function usageBar(usage: UsageSnapshot): Promise<Buffer> {
   const brand = brands[usage.provider];
   const first = usage.windows[0] || { label: "--", value: 0, resetsAt: null };
   const second = usage.windows[1] || first;
+  // The InfoBar has room for the exact wording, so it names the window that is resetting.
+  const soonest = usage.windows
+    .filter((window) => typeof window.resetsAt === "number")
+    .sort((a, b) => Number(a.resetsAt) - Number(b.resetsAt))[0];
+  const countdown = usage.error ? null : formatCountdown(soonest?.resetsAt);
   const caption = usage.error
     ? (usage.windows.length ? "last known · refresh failed" : "data unavailable")
-    : usage.provider === "opencode" ? "local token usage" : "live plan usage";
+    : countdown
+      ? `${soonest.label} resets in ${countdown}`
+      : usage.provider === "opencode" ? "local token usage" : "live plan usage";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="${brand.background}"/><circle cx="13" cy="12" r="4" fill="${brand.accent}"/><text x="23" y="17" fill="#f5f7fb" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">${brand.name}</text><text x="236" y="17" text-anchor="end" fill="#aeb9c8" font-family="-apple-system,sans-serif" font-size="8">${caption}</text>${usageMetric(12, 30, first, brand.accent)}${usageMetric(134, 30, second, brand.accent)}</svg>`, BAR_WIDTH, BAR_HEIGHT);
 }
 

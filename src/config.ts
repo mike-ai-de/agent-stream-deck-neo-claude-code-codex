@@ -14,6 +14,18 @@ export interface DeckConfig {
   keys: KeyModule[];
   infoBar: InfoModule[];
   restingPage: InfoModule;
+  /** Usage percentage at which a usage key turns amber. */
+  usageWarnPercent: number;
+  /** Usage percentage at which a usage key turns red. */
+  usageCriticalPercent: number;
+  /** Show the project directory name on status keys instead of a plain session count. */
+  showProjectLabels: boolean;
+  /** Tapping a key that needs attention raises the owning window before acknowledging. */
+  focusOnTap: boolean;
+  /** Post a desktop notification when a session starts waiting on you. */
+  notifyOnAttention: boolean;
+  /** Name of a macOS system sound to play with the notification; null stays silent. */
+  attentionSound: string | null;
 }
 
 export const DEFAULT_CONFIG: DeckConfig = {
@@ -23,7 +35,13 @@ export const DEFAULT_CONFIG: DeckConfig = {
     "claude.usage", "codex.usage", "opencode.usage", "info"
   ],
   infoBar: ["claude", "codex", "opencode", "all"],
-  restingPage: "all"
+  restingPage: "all",
+  usageWarnPercent: 80,
+  usageCriticalPercent: 95,
+  showProjectLabels: true,
+  focusOnTap: true,
+  notifyOnAttention: true,
+  attentionSound: "Submarine"
 };
 
 const KEY_MODULES: readonly KeyModule[] = [
@@ -65,7 +83,42 @@ export function loadConfig(dir = configDir()): DeckConfig {
     ? (parsed.restingPage as InfoModule)
     : infoBar[infoBar.length - 1];
 
-  return { brightness, keys, infoBar, restingPage };
+  const usageWarnPercent = percentOr(parsed.usageWarnPercent, DEFAULT_CONFIG.usageWarnPercent);
+  // Keep the thresholds ordered even if the file has them the wrong way round.
+  const usageCriticalPercent = Math.max(
+    usageWarnPercent,
+    percentOr(parsed.usageCriticalPercent, DEFAULT_CONFIG.usageCriticalPercent)
+  );
+
+  return {
+    brightness,
+    keys,
+    infoBar,
+    restingPage,
+    usageWarnPercent,
+    usageCriticalPercent,
+    showProjectLabels: booleanOr(parsed.showProjectLabels, DEFAULT_CONFIG.showProjectLabels),
+    focusOnTap: booleanOr(parsed.focusOnTap, DEFAULT_CONFIG.focusOnTap),
+    notifyOnAttention: booleanOr(parsed.notifyOnAttention, DEFAULT_CONFIG.notifyOnAttention),
+    attentionSound: soundOr(parsed.attentionSound, DEFAULT_CONFIG.attentionSound)
+  };
+}
+
+function percentOr(value: unknown, fallback: number): number {
+  return Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : fallback;
+}
+
+function booleanOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+// Restricted to a plain name because the value is passed to afplay as a path segment.
+function soundOr(value: unknown, fallback: string | null): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^[A-Za-z0-9 _-]{1,40}$/.test(trimmed) ? trimmed : fallback;
 }
 
 export function saveConfig(cfg: DeckConfig, dir = configDir()): void {

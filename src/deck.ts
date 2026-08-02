@@ -2,6 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { DeviceModelId, listStreamDecks, openStreamDeck, type StreamDeck } from "@elgato-stream-deck/node";
 import { Dashboard } from "./dashboard.js";
 import { actionForControl } from "./input.js";
+import { focusSession } from "./lib/focus.js";
+import { AttentionNotifier } from "./lib/notify.js";
 import { renderDeckBuffers } from "./render.js";
 
 const POLL_INTERVAL_MS = 3_000;
@@ -9,6 +11,7 @@ const DEVICE_SCAN_INTERVAL_MS = 5_000;
 
 export class NeoAgentDeck {
   private readonly dashboard = new Dashboard();
+  private readonly notifier = new AttentionNotifier(this.dashboard.config);
   private deck: StreamDeck | null = null;
   private timer: NodeJS.Timeout | null = null;
   private rendering = false;
@@ -104,6 +107,13 @@ export class NeoAgentDeck {
       const config = this.dashboard.config;
       const action = actionForControl(key, config);
       if (action.type === "acknowledge-provider") {
+        // Acknowledging says "I have seen it"; raising the window is how you act on it. Doing both
+        // on one tap keeps the deck a control surface rather than a read-only display.
+        const view = this.dashboard.current().providers[action.provider];
+        if (config.focusOnTap && view.state === "attention") {
+          const result = await focusSession(view.primary);
+          if (!result.focused) console.warn(`Could not raise the ${action.provider} session: ${result.detail}`);
+        }
         this.dashboard.acknowledgeProvider(action.provider);
       } else if (action.type === "cycle-info") {
         this.dashboard.state.nextInfoPage(action.delta);
@@ -125,6 +135,9 @@ export class NeoAgentDeck {
       let buffers: Awaited<ReturnType<typeof renderDeckBuffers>>;
       try {
         const snapshot = await this.dashboard.collect(forceUsage);
+        // Announce before drawing: the notification is the point of the feature when you are not
+        // looking at the deck, and a render failure should not swallow it.
+        await this.notifier.handle(snapshot);
         const page = this.dashboard.state.data.infoPage;
         buffers = await renderDeckBuffers(snapshot, page, this.dashboard.config);
       } catch (error) {

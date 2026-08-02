@@ -43,6 +43,7 @@
     "setup": "tsx scripts/setup.ts",
     "preview:live": "tsx scripts/preview.ts --live",
     "status": "tsx scripts/status.ts",
+    "token:claude": "tsx scripts/set-claude-token.ts",
     "uninstall:linux": "bash scripts/uninstall-linux.sh",
     "uninstall:mac": "bash scripts/uninstall-macos.sh",
     "uninstall:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-windows.ps1",

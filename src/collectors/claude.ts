@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listJsonl, loadJson, processAlive, readTail, type FileStamp } from "../lib/files.js";
 import { readClaudeAccessToken } from "../lib/claude-auth.js";
-import { clampPercent, emptyUsage } from "../lib/util.js";
+import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
 import { claudeProjectsDirectory, claudeSessionsDirectory, wslDistributionFromPath } from "../platform.js";
 import type { PersistedState, SessionSnapshot, UsageSnapshot, UsageWindow } from "../types.js";
 
@@ -16,6 +16,7 @@ interface ClaudeSessionFile {
   status?: string;
   updatedAt?: number;
   statusUpdatedAt?: number;
+  entrypoint?: string;
 }
 
 interface ClaudeUsageLimit {
@@ -107,7 +108,11 @@ export class ClaudeCollector {
         state: sessionState,
         isOpen: true,
         activityAt,
-        completionAt
+        completionAt,
+        cwd: raw.cwd,
+        label: projectLabel(raw.cwd, raw.name) ?? undefined,
+        pid: raw.pid,
+        entrypoint: raw.entrypoint
       });
     }
 

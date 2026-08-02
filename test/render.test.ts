@@ -15,7 +15,8 @@ const provider = (id: Provider, state: ProviderSnapshot["state"]): ProviderSnaps
   openCount: state === "idle" ? 0 : 1,
   workingCount: state === "working" ? 1 : 0,
   attentionCount: state === "attention" ? 1 : 0,
-  idleCount: state === "idle" ? 1 : 0
+  idleCount: state === "idle" ? 1 : 0,
+  primary: null
 });
 
 const snapshot: DashboardSnapshot = {
@@ -59,6 +60,7 @@ describe("Neo rendering", () => {
 
   it("renders a custom layout with blank keys and a shorter InfoBar", async () => {
     const config: DeckConfig = {
+      ...DEFAULT_CONFIG,
       brightness: 40,
       keys: ["summary", "blank", "claude.usage", "info", "blank", "codex.status", "opencode.usage", "blank"],
       infoBar: ["codex", "all"],
