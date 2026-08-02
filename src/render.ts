@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { DEFAULT_CONFIG, sessionSlot, type DeckConfig, type KeyModule } from "./config.js";
 import { isFocusable } from "./lib/focus.js";
-import { formatCountdown } from "./lib/util.js";
+import { formatCountdown, sanitizeLabel } from "./lib/util.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot, UsageWindow } from "./types.js";
 
 const KEY_SIZE = 96;
@@ -10,8 +10,7 @@ const BAR_HEIGHT = 58;
 
 const brands: Record<Provider, { name: string; background: string; accent: string }> = {
   claude: { name: "CLAUDE", background: "#311b16", accent: "#f59e67" },
-  codex: { name: "CODEX", background: "#10283d", accent: "#55b7ff" },
-  opencode: { name: "OPENCODE", background: "#241b3d", accent: "#b69cff" }
+  codex: { name: "CODEX", background: "#10283d", accent: "#55b7ff" }
 };
 
 const states = {
@@ -41,14 +40,14 @@ export function leadingWindow(windows: readonly UsageWindow[]): UsageWindow | un
 }
 
 /** The next window to roll over, across all of them. */
-export function soonestReset(windows: readonly UsageWindow[]): UsageWindow | undefined {
+export function soonestReset(windows: readonly UsageWindow[], now = Date.now()): UsageWindow | undefined {
   return windows
-    .filter((window) => typeof window.resetsAt === "number")
+    .filter((window) => typeof window.resetsAt === "number" && Number.isFinite(window.resetsAt) && window.resetsAt > now)
     .sort((a, b) => Number(a.resetsAt) - Number(b.resetsAt))[0];
 }
 
 export function usageLevelFor(percent: number | undefined, config: DeckConfig): UsageLevel {
-  if (typeof percent !== "number") return "normal";
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return "normal";
   if (percent >= config.usageCriticalPercent) return "critical";
   if (percent >= config.usageWarnPercent) return "warn";
   return "normal";
@@ -69,14 +68,8 @@ async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, p
       return renderProviderKey(snapshot.providers.claude, config);
     case "codex.status":
       return renderProviderKey(snapshot.providers.codex, config);
-    case "opencode.status":
-      return renderProviderKey(snapshot.providers.opencode, config);
-    case "claude.usage":
-      return renderUsageKey(snapshot.providers.claude.usage, config);
     case "codex.usage":
       return renderUsageKey(snapshot.providers.codex.usage, config, Boolean(config.codexUsageUrl));
-    case "opencode.usage":
-      return renderUsageKey(snapshot.providers.opencode.usage, config);
     case "projects":
       return renderProjectsKey(snapshot);
     case "summary":
@@ -170,7 +163,7 @@ export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = 
     ? (usage.windows.length ? (pausedFor ? `stale · paused ${pausedFor}` : "stale · tap refresh") : "data unavailable")
     : countdown
       ? `${label} · ${countdown} left`
-      : usage.provider === "opencode" ? `${formatCurrency(usage.costUsd || 0)} / 7d` : subtitle;
+      : subtitle;
   // The countdown line is longer than the plain label, so it gets a smaller type size.
   const footerSize = footer.length > 13 ? 8 : 9;
   // A key that opens a web page should say so; the countdown moves up to the subtitle slot.
@@ -214,7 +207,7 @@ export async function renderBlankKey(): Promise<Buffer> {
 
 export async function renderInfoBar(snapshot: DashboardSnapshot, page: number, config: DeckConfig): Promise<Buffer> {
   const module = config.infoBar[page] ?? config.restingPage;
-  if (module === "claude" || module === "codex" || module === "opencode") return usageBar(snapshot.providers[module].usage);
+  if (module === "codex") return usageBar(snapshot.providers.codex.usage);
   if (module === "sessions") return sessionListBar(snapshot);
   return sessionsBar(snapshot);
 }
@@ -228,7 +221,7 @@ async function sessionListBar(snapshot: DashboardSnapshot): Promise<Buffer> {
   const overflow = snapshot.ranked.length - shown.length;
 
   if (!shown.length) {
-    return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">SESSIONS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">Claude · Codex · OpenCode</text><text x="13" y="44" fill="#6c7a90" font-family="-apple-system,sans-serif" font-size="13">no live sessions</text></svg>`, BAR_WIDTH, BAR_HEIGHT);
+    return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">SESSIONS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">Claude · Codex</text><text x="13" y="44" fill="#6c7a90" font-family="-apple-system,sans-serif" font-size="13">no live sessions</text></svg>`, BAR_WIDTH, BAR_HEIGHT);
   }
 
   const columnWidth = 248 / shown.length;
@@ -242,7 +235,7 @@ async function sessionListBar(snapshot: DashboardSnapshot): Promise<Buffer> {
       + `<text x="${x + 14}" y="50" fill="${brand.accent}" font-family="-apple-system,sans-serif" font-size="7" font-weight="700">${brand.name}</text>`;
   }).join("");
 
-  const caption = overflow > 0 ? `+${overflow} more` : "Claude · Codex · OpenCode";
+  const caption = overflow > 0 ? `+${overflow} more` : "Claude · Codex";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">SESSIONS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">${escapeXml(caption)}</text>${entries}</svg>`, BAR_WIDTH, BAR_HEIGHT);
 }
 
@@ -262,7 +255,7 @@ async function usageBar(usage: UsageSnapshot): Promise<Buffer> {
     ? (usage.windows.length ? (pausedFor ? `last known · retrying in ${pausedFor}` : "last known · refresh failed") : "data unavailable")
     : countdown
       ? `${soonest?.label ?? "quota"} resets in ${countdown}`
-      : usage.provider === "opencode" ? "local token usage" : "live plan usage";
+      : "live plan usage";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="${brand.background}"/><circle cx="13" cy="12" r="4" fill="${brand.accent}"/><text x="23" y="17" fill="#f5f7fb" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">${brand.name}</text><text x="236" y="17" text-anchor="end" fill="#aeb9c8" font-family="-apple-system,sans-serif" font-size="8">${escapeXml(caption)}</text>${usageMetric(12, 30, first, brand.accent)}${usageMetric(134, 30, second, brand.accent)}</svg>`, BAR_WIDTH, BAR_HEIGHT);
 }
 
@@ -276,7 +269,7 @@ function usageMetric(x: number, y: number, window: UsageWindow, accent: string):
 }
 
 async function sessionsBar(snapshot: DashboardSnapshot): Promise<Buffer> {
-  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">ALL AGENTS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">Claude · Codex · OpenCode</text>${counter(18, snapshot.openCount, "OPEN", "#71c7ff")}${counter(96, snapshot.workingCount, "WORK", "#34d399")}${counter(174, snapshot.attentionCount, "NEED YOU", "#ffb020")}</svg>`, BAR_WIDTH, BAR_HEIGHT);
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">ALL AGENTS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">Claude · Codex</text>${counter(18, snapshot.openCount, "OPEN", "#71c7ff")}${counter(96, snapshot.workingCount, "WORK", "#34d399")}${counter(174, snapshot.attentionCount, "NEED YOU", "#ffb020")}</svg>`, BAR_WIDTH, BAR_HEIGHT);
 }
 
 function counter(x: number, value: number, label: string, color: string): string {
@@ -310,5 +303,5 @@ async function svgToRgba(svg: string, width: number, height: number): Promise<Bu
 }
 
 function escapeXml(value: string): string {
-  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character] || character);
+  return sanitizeLabel(String(value)).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character] || character);
 }

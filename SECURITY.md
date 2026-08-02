@@ -13,13 +13,11 @@ coordinated fixes will be published through a tagged release.
 
 ## Sensitive local data
 
-Neo Agent Deck reads local agent metadata and, for Claude usage, an existing
-OAuth credential from the process environment, macOS Keychain, or Claude's
-credentials file. The application does not persist that credential. On
-Windows, the login service inherits the current user's environment; do not put
-tokens directly into repository files, screenshots, or issue reports.
+The application reads local Claude Code and Codex session metadata. It does not
+read, store, or transmit provider credentials. Do not put tokens into repository
+files, screenshots, logs, or issue reports.
 
 Debug reports should contain only the output of `npm run doctor` or
-`npm run status`; never attach files from `~/.claude`, `~/.codex`, the OpenCode
-database, macOS Keychain, Windows credential storage, `~/.neo-agent-deck`, or
+`npm run status`; never attach files from `~/.claude`, `~/.codex`, macOS
+Keychain, Windows credential storage, `~/.neo-agent-deck`, or
 `~/.ssh`. Review even sanitized output before publishing it.

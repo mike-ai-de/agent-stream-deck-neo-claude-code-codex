@@ -81,8 +81,10 @@ export async function openUrl(url: string, dependencies: FocusDependencies = {})
   try {
     await execute("/usr/bin/open", [parsed.toString()], { timeout: 5_000 });
     return { focused: true, detail: `opened ${parsed.hostname}` };
-  } catch (error) {
-    return { focused: false, detail: `could not open the link: ${(error instanceof Error ? error.message : String(error)).split("\n")[0]}` };
+  } catch {
+    // execFile errors include the full argv, so returning the raw message could disclose URL
+    // credentials or query parameters in the service log.
+    return { focused: false, detail: `could not open an https link to ${parsed.hostname}` };
   }
 }
 

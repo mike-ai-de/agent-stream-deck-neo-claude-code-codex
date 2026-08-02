@@ -5,8 +5,14 @@ import path from "node:path";
 import sharp from "sharp";
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.js";
 import { Dashboard, groupProjects, rankSessions, summarizeProvider } from "../src/dashboard.js";
-import { renderDeckBuffers } from "../src/render.js";
+import { renderDeckBuffers, renderProviderKey } from "../src/render.js";
 import type { DashboardSnapshot, Provider, SessionSnapshot, UsageSnapshot } from "../src/types.js";
+
+interface PositionedOverlay {
+  input: Buffer;
+  left: number;
+  top: number;
+}
 
 const args = process.argv.slice(2);
 const live = args.includes("--live");
@@ -14,7 +20,7 @@ const readme = args.includes("--readme");
 const outputArg = args.find((argument) => !argument.startsWith("--"));
 const defaultOutput = live ? path.join(os.tmpdir(), "neo-agent-deck-live.png") : "docs/neo-agent-deck-preview.png";
 const output = path.resolve(outputArg || defaultOutput);
-const snapshot = live ? await new Dashboard().collect(true) : sampleSnapshot();
+const snapshot = live ? await new Dashboard().collect() : sampleSnapshot();
 // A live preview should show the deck you actually have. The documentation images stay on the
 // default layout, since that is what a new reader is being shown.
 const previewConfig = live ? loadConfig() : DEFAULT_CONFIG;
@@ -73,13 +79,13 @@ async function writeHero(data: DashboardSnapshot, file: string): Promise<void> {
       </g>
       <rect x="80" y="80" width="1440" height="1" fill="#ffffff" fill-opacity=".10"/>
       <rect x="80" y="79" width="72" height="3" rx="1.5" fill="url(#line)"/>
-      <text x="80" y="126" fill="#c4cfde" font-family="Arial,sans-serif" font-size="20" font-weight="700" letter-spacing="4">NEO AGENT DECK</text>
+      <text x="80" y="126" fill="#c4cfde" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="3.2">AGENT STREAM DECK NEO</text>
       <text x="1520" y="125" text-anchor="end" fill="#65758c" font-family="Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="2">STREAM DECK NEO · LOCAL USB</text>
       <text x="80" y="246" fill="#f8fafc" font-family="Arial,sans-serif" font-size="68" font-weight="800">
         <tspan x="80" dy="0">Every agent.</tspan><tspan x="80" dy="76">One glance.</tspan>
       </text>
       <text x="84" y="432" fill="#9eacc0" font-family="Arial,sans-serif" font-size="23">
-        <tspan x="84" dy="0">Claude Code, Codex and OpenCode.</tspan>
+        <tspan x="84" dy="0">Claude Code and Codex.</tspan>
         <tspan x="84" dy="36">Live status and usage on your desk.</tspan>
       </text>
       <g transform="translate(80 544)">
@@ -89,11 +95,9 @@ async function writeHero(data: DashboardSnapshot, file: string): Promise<void> {
       </g>
       <g transform="translate(80 692)" font-family="Arial,sans-serif">
         <text x="0" y="0" fill="#f59e67" font-size="12" font-weight="800" letter-spacing="1.6">CLAUDE</text>
-        <text x="0" y="28" fill="#6f7e94" font-size="14">plan usage</text>
+        <text x="0" y="28" fill="#6f7e94" font-size="14">session focus</text>
         <text x="144" y="0" fill="#55b7ff" font-size="12" font-weight="800" letter-spacing="1.6">CODEX</text>
         <text x="144" y="28" fill="#6f7e94" font-size="14">rate limits</text>
-        <text x="288" y="0" fill="#b69cff" font-size="12" font-weight="800" letter-spacing="1.6">OPENCODE</text>
-        <text x="288" y="28" fill="#6f7e94" font-size="14">local tokens</text>
       </g>
       <rect x="80" y="800" width="1440" height="1" fill="#ffffff" fill-opacity=".10"/>
       <text x="80" y="842" fill="#617087" font-family="Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="1.6">STATUS · USAGE · ATTENTION</text>
@@ -112,8 +116,11 @@ async function writeHero(data: DashboardSnapshot, file: string): Promise<void> {
 async function writeStatusGallery(data: DashboardSnapshot, file: string): Promise<void> {
   const width = 1400;
   const height = 760;
-  const buffers = await renderDeckBuffers(data, DEFAULT_CONFIG.infoBar.indexOf("all"), DEFAULT_CONFIG);
-  const keys = await Promise.all(buffers.slice(0, 3).map((buffer) => rawKeyToPng(buffer, 2.2)));
+  const keys = await Promise.all([
+    renderProviderKey({ ...data.providers.claude, state: "working", workingCount: 1 }),
+    renderProviderKey({ ...data.providers.codex, state: "attention", attentionCount: 1 }),
+    renderProviderKey({ ...data.providers.claude, state: "idle", openCount: 0, workingCount: 0, attentionCount: 0 })
+  ].map(async (buffer) => rawKeyToPng(await buffer, 2.2)));
   const background = svg(`
     <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
       <defs>
@@ -147,8 +154,8 @@ async function writeStatusGallery(data: DashboardSnapshot, file: string): Promis
 async function writeInfoBarGallery(data: DashboardSnapshot, file: string): Promise<void> {
   const width = 1400;
   const height = 820;
-  const names = ["CLAUDE", "CODEX", "OPENCODE", "ALL AGENTS"];
-  const descriptions = ["5H + 7D PLAN USAGE", "5H + 1W RATE LIMITS", "24H + 7D LOCAL TOKENS", "OPEN + WORK + NEED YOU"];
+  const names = ["SESSIONS", "CODEX", "ALL AGENTS"];
+  const descriptions = ["NAMED LIVE SESSIONS", "RATE-LIMIT WINDOWS", "OPEN + WORK + NEED YOU"];
   const bars: Buffer[] = [];
   for (let page = 0; page < DEFAULT_CONFIG.infoBar.length; page += 1) {
     const buffers = await renderDeckBuffers(data, page, DEFAULT_CONFIG);
@@ -158,27 +165,25 @@ async function writeInfoBarGallery(data: DashboardSnapshot, file: string): Promi
     <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
       <defs>
         <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#070a12"/><stop offset=".5" stop-color="#12172a"/><stop offset="1" stop-color="#081017"/></linearGradient>
-        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#f59e67"/><stop offset=".36" stop-color="#55b7ff"/><stop offset=".72" stop-color="#b69cff"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#f59e67"/><stop offset=".55" stop-color="#55b7ff"/><stop offset="1" stop-color="#34d399"/></linearGradient>
       </defs>
       <rect width="1400" height="820" fill="url(#bg)"/>
       <rect x="560" y="80" width="280" height="5" rx="2.5" fill="url(#accent)"/>
-      <text x="700" y="142" text-anchor="middle" fill="#f8fafc" font-family="Arial,sans-serif" font-size="42" font-weight="800">One InfoBar. Four live views.</text>
+      <text x="700" y="142" text-anchor="middle" fill="#f8fafc" font-family="Arial,sans-serif" font-size="42" font-weight="800">One InfoBar. Three live views.</text>
       <text x="700" y="185" text-anchor="middle" fill="#8492a7" font-family="Arial,sans-serif" font-size="19">Cycle with the info key or Neo touch points.</text>
       <g fill="#ffffff" fill-opacity=".035" stroke="#ffffff" stroke-opacity=".09">
-        <rect x="95" y="242" width="575" height="214" rx="28"/><rect x="730" y="242" width="575" height="214" rx="28"/>
-        <rect x="95" y="496" width="575" height="214" rx="28"/><rect x="730" y="496" width="575" height="214" rx="28"/>
+        <rect x="30" y="242" width="434" height="250" rx="28"/><rect x="483" y="242" width="434" height="250" rx="28"/><rect x="936" y="242" width="434" height="250" rx="28"/>
       </g>
       <g font-family="Arial,sans-serif">
         ${names.map((name, index) => {
-          const left = index % 2 === 0 ? 126 : 761;
-          const top = index < 2 ? 278 : 532;
+          const left = 60 + index * 453;
+          const top = 286;
           return `<text x="${left}" y="${top}" fill="#f1f5f9" font-size="18" font-weight="800" letter-spacing="1.6">${name}</text><text x="${left}" y="${top + 27}" fill="#66758c" font-size="12" font-weight="700" letter-spacing="1.1">${descriptions[index]}</text>`;
         }).join("")}
       </g>
     </svg>`);
   const positions = [
-    { left: 126, top: 330 }, { left: 761, top: 330 },
-    { left: 126, top: 584 }, { left: 761, top: 584 }
+    { left: 30, top: 342 }, { left: 483, top: 342 }, { left: 936, top: 342 }
   ];
   const composites = bars.map((input, index) => ({ input, ...positions[index] }));
   await writePng(width, height, background, composites, file);
@@ -214,7 +219,7 @@ async function renderDevice(data: DashboardSnapshot, page: number, scale: number
     </svg>`);
   const keyGridWidth = 4 * keySize + 3 * gap;
   const keyGridLeft = Math.round((840 - keyGridWidth) / 2);
-  const composites: sharp.OverlayOptions[] = keys.map((input, index) => ({
+  const composites: PositionedOverlay[] = keys.map((input, index) => ({
     input,
     left: keyGridLeft + (index % 4) * (keySize + gap),
     top: 67 + Math.floor(index / 4) * (keySize + gap)
@@ -233,7 +238,7 @@ async function rawInfoBarToPng(buffer: Buffer, scale: number): Promise<Buffer> {
   return sharp(buffer, { raw: { width: 248, height: 58, channels: 4 } }).resize(Math.round(248 * scale), Math.round(58 * scale)).png().toBuffer();
 }
 
-async function writePng(width: number, height: number, background: Buffer, composites: sharp.OverlayOptions[], file: string): Promise<void> {
+async function writePng(width: number, height: number, background: Buffer, composites: PositionedOverlay[], file: string): Promise<void> {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   await sharp({ create: { width, height, channels: 4, background: "#070912" } })
     .composite([{ input: background, left: 0, top: 0 }, ...composites])
@@ -256,15 +261,13 @@ function sampleSnapshot(): DashboardSnapshot {
     isOpen,
     activityAt: Date.now(),
     completionAt: state === "attention" ? Date.now() : 0,
-    label: { claude: "MediLog", codex: "neo-agent-deck", opencode: "scratch" }[provider]
+    label: { claude: "SaleSync", codex: "SaleSync" }[provider]
   });
-  const claudeUsage: UsageSnapshot = { provider: "claude", windows: [{ label: "5h", percent: 12, resetsAt: null }, { label: "7d", percent: 34, resetsAt: null }], updatedAt: Date.now(), error: null };
+  const claudeUsage: UsageSnapshot = { provider: "claude", windows: [], updatedAt: Date.now(), error: null };
   const codexUsage: UsageSnapshot = { provider: "codex", windows: [{ label: "5h", percent: 17, resetsAt: null }, { label: "1w", percent: 25, resetsAt: null }], updatedAt: Date.now(), error: null };
-  const opencodeUsage: UsageSnapshot = { provider: "opencode", windows: [{ label: "24h", value: 473_000, unit: "tokens", resetsAt: null }, { label: "7d", value: 5_180_000, unit: "tokens", resetsAt: null }], costUsd: 3.84, updatedAt: Date.now(), error: null };
   const providers = {
     claude: summarizeProvider("claude", { sessions: [session("claude", "1", "working"), session("claude", "2", "idle", true)], usage: claudeUsage }),
-    codex: summarizeProvider("codex", { sessions: [session("codex", "1", "attention"), session("codex", "2", "idle")], usage: codexUsage }),
-    opencode: summarizeProvider("opencode", { sessions: [session("opencode", "1", "idle", true)], usage: opencodeUsage })
+    codex: summarizeProvider("codex", { sessions: [session("codex", "1", "attention"), session("codex", "2", "idle")], usage: codexUsage })
   };
   const all = Object.values(providers).flatMap((provider) => provider.sessions);
   return { providers, openCount: all.filter((item) => item.isOpen).length, workingCount: all.filter((item) => item.state === "working").length, attentionCount: all.filter((item) => item.state === "attention").length, updatedAt: Date.now(), ranked: rankSessions(all), projects: groupProjects(rankSessions(all)) };

@@ -58,7 +58,7 @@ if (-not (Test-NeoProcess -Id $supervisorId -CommandNeedle "start-windows.ps1"))
   throw "The Windows login service exited during startup."
 }
 
-Write-Host "Neo Agent Deck installed and started for the current Windows user."
+Write-Host "Agent Stream Deck Neo Claude Code & Codex installed and started for the current Windows user."
 Write-Host "Startup entry: $StartupFile"
 Write-Host "Logs: $(Join-Path $ConfigDirectory 'logs')"
-Write-Host "Elgato Stream Deck was closed so Neo Agent Deck can own the USB device."
+Write-Host "Elgato Stream Deck was closed so Agent Stream Deck Neo Claude Code & Codex can own the USB device."

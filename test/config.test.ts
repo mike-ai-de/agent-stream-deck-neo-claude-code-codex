@@ -25,13 +25,13 @@ describe("deck config", () => {
     try {
       fs.writeFileSync(path.join(directory, "config.json"), JSON.stringify({
         brightness: 250,
-        keys: ["summary", "nonsense", "claude.status", "codex.usage", "blank", "info", "opencode.status", "opencode.usage"],
+        keys: ["summary", "nonsense", "claude.status", "codex.usage", "blank", "info", "legacy.status", "legacy.usage"],
         infoBar: ["codex", "bogus", "codex", "all"],
         restingPage: "claude"
       }));
       const config = loadConfig(directory);
       expect(config.brightness).toBe(100);
-      expect(config.keys).toEqual(["summary", "blank", "claude.status", "codex.usage", "blank", "info", "opencode.status", "opencode.usage"]);
+      expect(config.keys).toEqual(["summary", "blank", "claude.status", "codex.usage", "blank", "info", "blank", "blank"]);
       expect(config.infoBar).toEqual(["codex", "all"]);
       expect(config.restingPage).toBe("all");
     } finally {
@@ -56,7 +56,7 @@ describe("deck config", () => {
   it("round-trips through saveConfig and restricts POSIX permissions", () => {
     const directory = tempDir();
     try {
-      const config = { ...DEFAULT_CONFIG, brightness: 55, restingPage: "claude" as const };
+      const config = { ...DEFAULT_CONFIG, brightness: 55, restingPage: "sessions" as const };
       saveConfig(config, directory);
       expect(loadConfig(directory)).toEqual(config);
       if (process.platform !== "win32") {

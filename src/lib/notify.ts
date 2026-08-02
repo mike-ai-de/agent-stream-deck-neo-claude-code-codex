@@ -2,13 +2,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { DeckConfig } from "../config.js";
 import type { DashboardSnapshot, Provider } from "../types.js";
+import { sanitizeLabel } from "./util.js";
 
 const execFileAsync = promisify(execFile);
 
 const PROVIDER_TITLES: Record<Provider, string> = {
   claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode"
+  codex: "Codex"
 };
 
 /** Do not re-notify for the same provider more often than this, however it flaps. */
@@ -96,5 +96,5 @@ export class AttentionNotifier {
 }
 
 function sanitize(value: string): string {
-  return value.replace(/["\\]/g, "").replace(/[\r\n]+/g, " ").slice(0, 120);
+  return sanitizeLabel(value).replace(/["\\]/g, "").slice(0, 120);
 }

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CodexCollector } from "../src/collectors/codex.js";
+import { CodexCollector, usageFromRateLimits } from "../src/collectors/codex.js";
 import type { PersistedState } from "../src/types.js";
 
 const state: PersistedState = {
@@ -44,5 +44,13 @@ describe("Codex collector metadata cache", () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("Codex usage validation", () => {
+  it("does not present a missing percentage as zero usage", () => {
+    const usage = usageFromRateLimits({ primary: { window_minutes: 300 } });
+    expect(usage.windows).toEqual([]);
+    expect(usage.error).toBe("No usable Codex rate-limit window found");
   });
 });

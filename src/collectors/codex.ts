@@ -38,7 +38,7 @@ type ExecFileFn = (file: string, args: readonly string[], options: { timeout: nu
 const execFileAsync = promisify(execFile) as unknown as ExecFileFn;
 
 // A crashed Codex session leaves task_started as its final lifecycle event forever. Bound
-// "working" by file recency the way Claude/OpenCode do, so a dead session decays to idle instead
+// "working" by file recency the way Claude does, so a dead session decays to idle instead
 // of being counted as a live agent indefinitely.
 const CODEX_WORKING_MS = 10 * 60_000;
 
@@ -268,12 +268,21 @@ export function parseCodexProcessList(text: string): number[] {
 
 export function parseCodexProcessCwds(text: string): Map<string, number> {
   const result = new Map<string, number>();
+  const ambiguous = new Set<string>();
   let pid: number | null = null;
   for (const line of text.split("\n")) {
     if (/^p\d+$/.test(line)) pid = Number(line.slice(1));
     else if (pid && line.startsWith("n") && line.length > 1) {
       const cwd = path.resolve(line.slice(1));
-      if (!result.has(cwd)) result.set(cwd, pid);
+      if (ambiguous.has(cwd)) continue;
+      if (result.has(cwd) && result.get(cwd) !== pid) {
+        // A cwd alone cannot tell us which rollout belongs to which terminal. Offering no focus is
+        // safer than consistently raising the first, potentially unrelated Codex process.
+        result.delete(cwd);
+        ambiguous.add(cwd);
+      } else {
+        result.set(cwd, pid);
+      }
     }
   }
   return result;
@@ -281,9 +290,14 @@ export function parseCodexProcessCwds(text: string): Map<string, number> {
 
 export function usageFromRateLimits(rateLimits: RateLimits): UsageSnapshot {
   const windows: UsageWindow[] = [];
-  if (rateLimits.primary) windows.push(toWindow(rateLimits.primary));
-  if (rateLimits.secondary) windows.push(toWindow(rateLimits.secondary));
-  return { provider: "codex", windows, updatedAt: Date.now(), error: null };
+  if (rateLimits.primary && Number.isFinite(Number(rateLimits.primary.used_percent))) windows.push(toWindow(rateLimits.primary));
+  if (rateLimits.secondary && Number.isFinite(Number(rateLimits.secondary.used_percent))) windows.push(toWindow(rateLimits.secondary));
+  return {
+    provider: "codex",
+    windows,
+    updatedAt: Date.now(),
+    error: windows.length ? null : "No usable Codex rate-limit window found"
+  };
 }
 
 function toWindow(window: RateWindow): UsageWindow {

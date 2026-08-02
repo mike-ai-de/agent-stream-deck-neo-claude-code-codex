@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Dashboard, summarizeProvider } from "../src/dashboard.js";
-import { inferOpenCodeState, type OpenCodeSessionRow } from "../src/collectors/opencode.js";
 import { StateStore } from "../src/state.js";
 import type { Provider, SessionSnapshot, UsageSnapshot } from "../src/types.js";
 
@@ -69,15 +68,13 @@ describe("dashboard", () => {
     const dashboard = makeDashboard();
     stubCollector(dashboard, "claude", [stub("claude", "a", "working", true), stub("claude", "b", "idle", true)]);
     stubCollector(dashboard, "codex", [stub("codex", "c", "attention", true, 5), stub("codex", "d", "idle", false)]);
-    stubCollector(dashboard, "opencode", [stub("opencode", "e", "working", true), stub("opencode", "f", "attention", true, 5)]);
 
     const snapshot = await dashboard.collect();
-    expect(snapshot.openCount).toBe(5);
-    expect(snapshot.workingCount).toBe(2);
-    expect(snapshot.attentionCount).toBe(2);
+    expect(snapshot.openCount).toBe(3);
+    expect(snapshot.workingCount).toBe(1);
+    expect(snapshot.attentionCount).toBe(1);
     expect(snapshot.providers.claude.state).toBe("working");
     expect(snapshot.providers.codex.state).toBe("attention");
-    expect(snapshot.providers.opencode.state).toBe("attention");
     expect(dashboard.current()).toBe(snapshot);
   });
 
@@ -85,32 +82,17 @@ describe("dashboard", () => {
     const dashboard = makeDashboard();
     const completionAt = Date.now() + 60_000;
     stubCollector(dashboard, "claude", []);
-    stubCollector(dashboard, "codex", []);
-    stubCollector(dashboard, "opencode", [
-      stub("opencode", "sess-att", "attention", true, completionAt),
-      stub("opencode", "sess-idle", "idle", false)
+    stubCollector(dashboard, "codex", [
+      stub("codex", "sess-att", "attention", true, completionAt),
+      stub("codex", "sess-idle", "idle", false)
     ]);
     await dashboard.collect();
 
-    dashboard.acknowledgeProvider("opencode");
-    expect(dashboard.state.data.acknowledged["opencode:sess-att"]).toBe(completionAt);
-    expect("opencode:sess-idle" in dashboard.state.data.acknowledged).toBe(false);
+    dashboard.acknowledgeProvider("codex");
+    expect(dashboard.state.data.acknowledged["codex:sess-att"]).toBe(completionAt);
+    expect("codex:sess-idle" in dashboard.state.data.acknowledged).toBe(false);
 
-    const reloaded = new StateStore(directory!, 4, 3);
-    expect(reloaded.data.acknowledged["opencode:sess-att"]).toBe(completionAt);
-
-    const row: OpenCodeSessionRow = {
-      id: "sess-att",
-      title: "Acked session",
-      time_updated: completionAt,
-      time_archived: null,
-      role: "assistant",
-      finish: "stop",
-      error_type: null,
-      message_at: completionAt
-    };
-    const later = completionAt + 20 * 60_000;
-    expect(inferOpenCodeState(row, { ...reloaded.data, acknowledged: {} }, later).state).toBe("attention");
-    expect(inferOpenCodeState(row, reloaded.data, later)).toEqual({ state: "idle", completionAt: 0 });
+    const reloaded = new StateStore(directory!, 3, 0);
+    expect(reloaded.data.acknowledged["codex:sess-att"]).toBe(completionAt);
   });
 });

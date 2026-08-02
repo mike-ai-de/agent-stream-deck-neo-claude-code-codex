@@ -114,7 +114,7 @@ PATH_UNIT="$(systemd_escape "$PATH")"
 
 {
   echo '[Unit]'
-  echo 'Description=Neo Agent Deck'
+  echo 'Description=Agent Stream Deck Neo Claude Code & Codex'
   echo 'After=graphical-session.target'
   echo
   echo '[Service]'
@@ -125,7 +125,7 @@ PATH_UNIT="$(systemd_escape "$PATH")"
   echo 'RestartSec=5'
   echo "Environment=\"HOME=$HOME_UNIT\""
   echo "Environment=\"PATH=$PATH_UNIT\""
-  for name in CLAUDE_CONFIG_DIR CODEX_HOME OPENCODE_DATA_HOME NEO_AGENT_DECK_HOME; do
+  for name in CLAUDE_CONFIG_DIR CODEX_HOME NEO_AGENT_DECK_HOME; do
     value="${!name:-}"
     if [[ -n "$value" ]]; then
       echo "Environment=\"$name=$(systemd_escape "$value")\""
@@ -146,7 +146,7 @@ if [[ "$NO_START" == false ]]; then
   fi
 fi
 
-echo "Neo Agent Deck installed for the current Linux user."
+echo "Agent Stream Deck Neo Claude Code & Codex installed for the current Linux user."
 echo "Service: $UNIT_FILE"
 echo "Logs: journalctl --user -u neo-agent-deck.service -f"
 if [[ "$NO_UDEV" == false ]]; then

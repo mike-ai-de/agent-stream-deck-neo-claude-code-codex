@@ -2,9 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseClaudeTail } from "../src/collectors/claude.js";
+import { ClaudeCollector, parseClaudeTail } from "../src/collectors/claude.js";
 import { findLatestCodexLifecycle, inferCodexState, parseCodexTail, usageFromRateLimits, windowLabel, type CodexTail } from "../src/collectors/codex.js";
-import { inferOpenCodeState, type OpenCodeSessionRow } from "../src/collectors/opencode.js";
 import { clampPercent } from "../src/lib/util.js";
 import type { PersistedState } from "../src/types.js";
 
@@ -59,6 +58,55 @@ describe("Claude session parsing", () => {
     const parsed = parseClaudeTail(JSON.stringify({ type: "user" }), fallbackMs);
     expect(parsed.lastUser).toBe(fallbackMs);
     expect(parsed.activityAt).toBe(fallbackMs);
+  });
+
+  it("prefers the transcript cwd when Claude Desktop reports root in its session file", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-deck-claude-cwd-"));
+    const sessions = path.join(directory, "sessions");
+    const projects = path.join(directory, "projects");
+    const sessionId = "desktop-session";
+    fs.mkdirSync(sessions);
+    fs.mkdirSync(projects);
+    fs.writeFileSync(path.join(sessions, `${process.pid}.json`), JSON.stringify({
+      pid: process.pid,
+      sessionId,
+      name: "claude-49",
+      cwd: "/",
+      status: "idle",
+      entrypoint: "claude-desktop"
+    }));
+    fs.writeFileSync(path.join(projects, `${sessionId}.jsonl`), [
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-08-02T12:00:00Z",
+        cwd: "/Users/me/projects/SaleSync"
+      }),
+      // Current Claude Desktop transcripts can return to root after a project-scoped event.
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-02T12:01:00Z",
+        cwd: "/",
+        message: { stop_reason: "end_turn" }
+      })
+    ].join("\n"));
+
+    try {
+      const result = await new ClaudeCollector(sessions, projects).collect({
+        schemaVersion: 2,
+        installedAt: 0,
+        attentionSince: 0,
+        infoPage: 0,
+        acknowledged: {}
+      });
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]).toMatchObject({
+        cwd: "/Users/me/projects/SaleSync",
+        label: "SaleSync",
+        entrypoint: "claude-desktop"
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
@@ -129,42 +177,5 @@ describe("Codex session state", () => {
     expect(inferCodexState(tail({ life: "task_complete", lifeAt: 200 }), 200, state, 300, "codex:1")).toEqual({ state: "attention", completionAt: 200 });
     const acknowledged = { ...state, acknowledged: { "codex:1": 200 } };
     expect(inferCodexState(tail({ life: "task_complete", lifeAt: 200 }), 200, acknowledged, 300, "codex:1")).toEqual({ state: "idle", completionAt: 0 });
-  });
-});
-
-describe("OpenCode session parsing", () => {
-  const state: PersistedState = { schemaVersion: 2, installedAt: 50, attentionSince: 100, infoPage: 3, acknowledged: {} };
-  const row = (overrides: Partial<OpenCodeSessionRow>): OpenCodeSessionRow => ({
-    id: "session-1",
-    title: "Backend test",
-    time_updated: 200,
-    time_archived: null,
-    role: "assistant",
-    finish: "stop",
-    error_type: null,
-    message_at: 200,
-    ...overrides
-  });
-
-  it("recognizes active user prompts and tool-call loops as working", () => {
-    expect(inferOpenCodeState(row({ role: "user", finish: null, message_at: 1_000 }), state, 1_500).state).toBe("working");
-    expect(inferOpenCodeState(row({ finish: "tool-calls", message_at: 1_000 }), state, 1_500).state).toBe("working");
-  });
-
-  it("marks a new completion as attention until acknowledged", () => {
-    expect(inferOpenCodeState(row({}), state, 1_500)).toEqual({ state: "attention", completionAt: 200 });
-    const acknowledged = { ...state, acknowledged: { "opencode:session-1": 200 } };
-    expect(inferOpenCodeState(row({}), acknowledged, 1_500)).toEqual({ state: "idle", completionAt: 0 });
-  });
-
-  it("treats an assistant error as a completion needing attention, even mid-tool-calls", () => {
-    const errored = row({ finish: "tool-calls", error_type: "object", message_at: 900 });
-    expect(inferOpenCodeState(errored, state, 1_500)).toEqual({ state: "attention", completionAt: 900 });
-  });
-
-  it("stops counting a user prompt as working exactly at the 10-minute boundary", () => {
-    const prompt = row({ role: "user", finish: null, message_at: 1_000_000 });
-    expect(inferOpenCodeState(prompt, state, 1_000_000 + 599_999).state).toBe("working");
-    expect(inferOpenCodeState(prompt, state, 1_000_000 + 600_000).state).toBe("idle");
   });
 });

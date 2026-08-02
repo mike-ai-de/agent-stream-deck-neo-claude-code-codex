@@ -29,5 +29,5 @@ if [[ "$NO_STOP" == false ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload 2>/dev/null || true
 fi
 
-echo "Neo Agent Deck has been removed from the Linux user service."
+echo "Agent Stream Deck Neo Claude Code & Codex has been removed from the Linux user service."
 echo "Preferences and the shared Stream Deck udev rule were kept."

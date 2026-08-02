@@ -21,14 +21,6 @@ export function codexSessionsDirectory(env: NodeJS.ProcessEnv = process.env, hom
   return path.join(codexHomeDirectory(env, home), "sessions");
 }
 
-export function openCodeDataDirectory(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string {
-  return env.OPENCODE_DATA_HOME || path.join(home, ".local", "share", "opencode");
-}
-
-export function openCodeDatabaseFile(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string {
-  return path.join(openCodeDataDirectory(env, home), "opencode.db");
-}
-
 export function platformLabel(platform = process.platform): string {
   if (platform === "win32") return "Windows";
   if (platform === "darwin") return "macOS";

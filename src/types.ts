@@ -1,4 +1,4 @@
-export type Provider = "claude" | "codex" | "opencode";
+export type Provider = "claude" | "codex";
 export type SessionState = "working" | "idle" | "attention";
 
 export interface SessionSnapshot {
@@ -30,7 +30,6 @@ export interface UsageWindow {
 export interface UsageSnapshot {
   provider: Provider;
   windows: UsageWindow[];
-  costUsd?: number;
   updatedAt: number;
   error: string | null;
   /** When the collector will next attempt a refresh; set while it is deliberately holding off. */

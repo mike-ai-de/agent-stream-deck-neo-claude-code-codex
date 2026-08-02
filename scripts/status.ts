@@ -3,7 +3,7 @@ import { Dashboard } from "../src/dashboard.js";
 import { formatCompactNumber } from "../src/render.js";
 import type { UsageSnapshot } from "../src/types.js";
 
-const snapshot = await new Dashboard().collect(true);
+const snapshot = await new Dashboard().collect();
 console.table(Object.values(snapshot.providers).map((provider) => ({
   provider: provider.provider,
   state: provider.state,

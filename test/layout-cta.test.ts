@@ -19,7 +19,7 @@ const emptyProvider = (provider: SessionSnapshot["provider"]): ProviderSnapshot 
 });
 
 const snapshotOf = (sessions: SessionSnapshot[]): DashboardSnapshot => ({
-  providers: { claude: emptyProvider("claude"), codex: emptyProvider("codex"), opencode: emptyProvider("opencode") },
+  providers: { claude: emptyProvider("claude"), codex: emptyProvider("codex") },
   openCount: sessions.length, workingCount: 0, attentionCount: 0, updatedAt: NOW,
   ranked: sessions, projects: groupProjects(sessions)
 });
@@ -27,11 +27,11 @@ const snapshotOf = (sessions: SessionSnapshot[]): DashboardSnapshot => ({
 describe("project grouping", () => {
   it("counts one project when two agents share a repository", () => {
     const projects = groupProjects([
-      session({ key: "claude:1", cwd: "/w/MediLog", label: "MediLog" }),
-      session({ key: "codex:1", provider: "codex", cwd: "/w/MediLog", label: "MediLog" })
+      session({ key: "claude:1", cwd: "/w/SaleSync", label: "SaleSync" }),
+      session({ key: "codex:1", provider: "codex", cwd: "/w/SaleSync", label: "SaleSync" })
     ]);
     expect(projects).toHaveLength(1);
-    expect(projects[0]).toMatchObject({ label: "MediLog", sessions: 2 });
+    expect(projects[0]).toMatchObject({ label: "SaleSync", sessions: 2 });
   });
 
   it("puts projects that want something first", () => {
@@ -45,6 +45,13 @@ describe("project grouping", () => {
 
   it("keeps sessions without a working directory apart instead of merging them", () => {
     expect(groupProjects([session({ key: "x" }), session({ key: "y" })])).toHaveLength(2);
+  });
+
+  it("normalizes equivalent working-directory spellings before grouping", () => {
+    expect(groupProjects([
+      session({ key: "x", cwd: "/w/project", label: "project" }),
+      session({ key: "y", cwd: "/w/project/", label: "project" })
+    ])).toHaveLength(1);
   });
 });
 
@@ -66,7 +73,7 @@ describe("sessions InfoBar page", () => {
 
   it("draws names, and differs from the counter page", async () => {
     const snapshot = snapshotOf([
-      session({ key: "a", cwd: "/w/MediLog", label: "MediLog", state: "attention" }),
+      session({ key: "a", cwd: "/w/SaleSync", label: "SaleSync", state: "attention" }),
       session({ key: "b", cwd: "/w/deck", label: "deck", provider: "codex" })
     ]);
     const names = await renderInfoBar(snapshot, 0, config);
@@ -89,19 +96,19 @@ describe("key actions", () => {
   };
 
   it("maps the configured layout to the intended call to action", () => {
-    expect(actionForControl(0, layout)).toEqual({ type: "acknowledge-provider", provider: "codex", forceUsage: false });
-    expect(actionForControl(1, layout)).toEqual({ type: "open-url", url: DEFAULT_CONFIG.codexUsageUrl, forceUsage: false });
-    expect(actionForControl(2, layout)).toEqual({ type: "acknowledge-provider", provider: "claude", forceUsage: false });
-    expect(actionForControl(3, layout)).toEqual({ type: "show-agents", forceUsage: true });
-    expect(actionForControl(4, layout)).toEqual({ type: "focus-session", slot: 0, forceUsage: false });
-    expect(actionForControl(5, layout)).toEqual({ type: "focus-session", slot: 1, forceUsage: false });
-    expect(actionForControl(6, layout)).toEqual({ type: "acknowledge-all", forceUsage: false });
-    expect(actionForControl(7, layout)).toEqual({ type: "cycle-info", delta: 1, forceUsage: false });
+    expect(actionForControl(0, layout)).toEqual({ type: "acknowledge-provider", provider: "codex" });
+    expect(actionForControl(1, layout)).toEqual({ type: "open-url", url: DEFAULT_CONFIG.codexUsageUrl });
+    expect(actionForControl(2, layout)).toEqual({ type: "acknowledge-provider", provider: "claude" });
+    expect(actionForControl(3, layout)).toEqual({ type: "show-agents" });
+    expect(actionForControl(4, layout)).toEqual({ type: "focus-session", slot: 0 });
+    expect(actionForControl(5, layout)).toEqual({ type: "focus-session", slot: 1 });
+    expect(actionForControl(6, layout)).toEqual({ type: "acknowledge-all" });
+    expect(actionForControl(7, layout)).toEqual({ type: "cycle-info", delta: 1 });
   });
 
   it("falls back to a refresh when no link is configured", () => {
     const noLink: DeckConfig = { ...layout, codexUsageUrl: null };
-    expect(actionForControl(1, noLink)).toEqual({ type: "refresh", forceUsage: true });
+    expect(actionForControl(1, noLink)).toEqual({ type: "refresh" });
   });
 });
 
@@ -125,5 +132,15 @@ describe("opening links", () => {
       expect((await openUrl(url, { platform: "darwin", execute })).focused).toBe(false);
     }
     expect(calls).toEqual([]);
+  });
+
+  it("does not echo a failed URL into a loggable result", async () => {
+    const secretUrl = "https://user:password@example.com/path?token=secret";
+    const execute = async () => { throw new Error(`Command failed: /usr/bin/open ${secretUrl}`); };
+    const result = await openUrl(secretUrl, { platform: "darwin", execute });
+    expect(result.focused).toBe(false);
+    expect(result.detail).toBe("could not open an https link to example.com");
+    expect(result.detail).not.toContain("password");
+    expect(result.detail).not.toContain("secret");
   });
 });

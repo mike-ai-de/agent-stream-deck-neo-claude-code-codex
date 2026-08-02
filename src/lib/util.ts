@@ -5,6 +5,14 @@ export function clampPercent(value: unknown): number {
   return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
 }
 
+/** Removes credential-shaped and control text before a local label reaches SVG, AppleScript, or logs. */
+export function sanitizeLabel(value: string): string {
+  return value
+    .replace(/sk-ant-[A-Za-z0-9_-]+/gi, "sk-ant-…")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .trim();
+}
+
 export function emptyUsage(provider: Provider, error: string, extra: Partial<UsageSnapshot> = {}): UsageSnapshot {
   return { provider, windows: [], updatedAt: 0, error, ...extra };
 }
@@ -35,9 +43,10 @@ const UNINFORMATIVE_DIRECTORIES = new Set(["", "/", ".", "..", "~"]);
  * session name. Truncated to fit a key, since the render target is 96px wide.
  */
 export function projectLabel(cwd?: string, fallback?: string, maxLength = 14): string | null {
-  const candidate = directoryName(cwd) ?? (fallback || "").trim();
+  const candidate = sanitizeLabel(directoryName(cwd) ?? (fallback || ""));
   if (!candidate) return null;
-  return candidate.length > maxLength ? `${candidate.slice(0, maxLength - 1)}…` : candidate;
+  const limit = Math.max(1, maxLength);
+  return candidate.length > limit ? `${candidate.slice(0, limit - 1)}…` : candidate;
 }
 
 function directoryName(cwd?: string): string | null {

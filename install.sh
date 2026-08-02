@@ -10,17 +10,17 @@ if [[ ! -t 0 || ! -t 1 ]]; then
 fi
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "Node.js 22.13+ (Node 22) or Node.js 24+ is required: https://nodejs.org/" >&2
+  echo "Node.js 22 or Node.js 24+ is required: https://nodejs.org/" >&2
   exit 1
 fi
 
-node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const ok = (major === 22 && minor >= 13) || major >= 24; if (!ok) { console.error(`Node.js 22.13+ or 24+ is required (the 23.x line is unsupported); found ${process.version}`); process.exit(1); }'
+node -e 'const major = Number(process.versions.node.split(".")[0]); const ok = major === 22 || major >= 24; if (!ok) { console.error(`Node.js 22 or 24+ is required (the 23.x line is unsupported); found ${process.version}`); process.exit(1); }'
 
 echo "Installing setup dependencies..."
 npm ci
 
 echo
-echo "Opening the guided Neo Agent Deck setup..."
+echo "Opening the guided Agent Stream Deck Neo Claude Code & Codex setup..."
 npm run setup
 
 case "$(uname -s)" in

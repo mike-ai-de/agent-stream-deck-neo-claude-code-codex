@@ -3,11 +3,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listJsonl, loadJson, processAlive, readTail, type FileStamp } from "../lib/files.js";
-import { readClaudeAccessToken, redactTokens } from "../lib/claude-auth.js";
-import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
-import { clearBackoff, MAX_BACKOFF_MS, readBackoff, writeBackoff } from "../lib/usage-backoff.js";
+import { projectLabel } from "../lib/util.js";
 import { claudeProjectsDirectory, claudeSessionsDirectory, wslDistributionFromPath } from "../platform.js";
-import type { PersistedState, SessionSnapshot, UsageSnapshot, UsageWindow } from "../types.js";
+import type { PersistedState, SessionSnapshot, UsageSnapshot } from "../types.js";
 
 interface ClaudeSessionFile {
   pid?: number;
@@ -20,163 +18,39 @@ interface ClaudeSessionFile {
   entrypoint?: string;
 }
 
-interface ClaudeUsageLimit {
-  kind?: string;
-  percent?: number;
-  resets_at?: string | null;
-}
-
-interface ClaudeUsageResponse {
-  limits?: ClaudeUsageLimit[];
-}
-
 const execFileAsync = promisify(execFile);
-
-/** Normal polling cadence for the usage endpoint. */
-const USAGE_INTERVAL_MS = 300_000;
-
-/** Escalating waits after the API refuses us, indexed by consecutive failure count. */
-const USAGE_BACKOFF_STEPS = [5, 10, 20, 40, 60].map((minutes) => minutes * 60_000);
-
-/** A scope the token will never grow into; wait long and rely on a new token to reset us. */
-const SCOPE_BACKOFF_MS = 4 * 60 * 60_000;
-
-/**
- * How long to wait after `failures` consecutive refusals. The counter is 1-based and the ladder is
- * 0-based, so the index is clamped rather than the counter — clamping the counter would both skip
- * the first rung and make the reported attempt count wrong. Bounded above so a mistaken or hostile
- * Retry-After cannot park usage beyond what a restart would honour: readBackoff discards any
- * persisted deadline past the same cap, and the two must not disagree about the same event.
- */
-export function backoffWaitMs(failures: number, retryAfterMs: number | null): number {
-  const rung = Math.min(Math.max(1, failures), USAGE_BACKOFF_STEPS.length) - 1;
-  return Math.min(MAX_BACKOFF_MS, Math.max(retryAfterMs ?? 0, USAGE_BACKOFF_STEPS[rung]));
-}
-
-/** Extracts the scope name from an Anthropic permission_error, e.g. "user:profile". */
-export function missingScope(detail: string): string | null {
-  return detail.match(/scope requirement ([\w:.-]+)/)?.[1] ?? null;
-}
-
-async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const body = await response.text();
-    const parsed = JSON.parse(body) as { error?: { message?: string } };
-    return parsed.error?.message || body;
-  } catch {
-    return "";
-  }
-}
-
-export function usageErrorMessage(status: number, retryAt: number, now = Date.now(), scope: string | null = null): string {
-  if (scope) {
-    // No countdown here on purpose: the wait is not what the reader should act on.
-    return `Claude usage needs the ${scope} scope, which this token does not have. `
-      + "Tokens from `claude setup-token` are inference-only; run /login in the Claude Code CLI, "
-      + "then `npm run token:claude -- --clear` to fall back to the Keychain.";
-  }
-  const minutes = Math.max(1, Math.round((retryAt - now) / 60_000));
-  const reason = status === 401 || status === 403
-    ? "token rejected"
-    : status === 429
-      ? "rate limited"
-      : status >= 500
-        ? "Anthropic API error"
-        : "unexpected response";
-  return `Claude usage HTTP ${status} (${reason}; retrying in ${minutes}m)`;
-}
 
 export interface ClaudeTail {
   lastUser: number;
   lastEnd: number;
   lastAssistant: number;
   activityAt: number;
+  cwd: string | null;
 }
 
+/**
+ * Local-only Claude session collector. This fork deliberately does not read OAuth credentials or
+ * call Anthropic's undocumented subscription-usage endpoint.
+ */
 export class ClaudeCollector {
   private projectFiles: FileStamp[] = [];
   private scannedAt = 0;
-  private usage: UsageSnapshot = emptyUsage("claude", "loading");
-  private usageFetchedAt = 0;
-  private usageBackoffUntil: number;
-  private usageFailures: number;
-  private usageRefresh: Promise<void> | null = null;
 
   constructor(
     private readonly sessionDirectory = claudeSessionsDirectory(),
     private readonly projectDirectory = claudeProjectsDirectory()
-  ) {
-    // Inherit any wait a previous run is still serving, so one-shot commands do not each get a
-    // free request against a rate limit the service is already backing off from.
-    const persisted = readBackoff();
-    this.usageBackoffUntil = persisted.retryAt;
-    this.usageFailures = persisted.failures;
-  }
+  ) {}
 
-  async collect(state: PersistedState, forceUsage = false, backgroundUsage = false): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
+  async collect(state: PersistedState): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
     const now = Date.now();
     if (!this.projectFiles.length || now - this.scannedAt > 30_000) {
       this.projectFiles = await listJsonl(this.projectDirectory);
       this.scannedAt = now;
     }
-    const fetching = this.shouldFetchUsage(now, forceUsage);
-    // Say "waiting" rather than "loading": a fresh process inheriting a persisted backoff has not
-    // tried yet and never will until the deadline passes.
-    if (!fetching && now < this.usageBackoffUntil) {
-      const minutes = Math.max(1, Math.round((this.usageBackoffUntil - now) / 60_000));
-      this.usage = {
-        ...this.usage,
-        error: `Claude usage paused after a rejected request; retrying in ${minutes}m`,
-        retryAt: this.usageBackoffUntil
-      };
-    }
-    const usageRefresh = fetching ? this.refreshUsage() : null;
-    const sessions = await this.readSessions(state);
-    if (usageRefresh) {
-      if (backgroundUsage) void usageRefresh.catch(() => {});
-      else await usageRefresh;
-    }
-    return { sessions, usage: this.usage };
-  }
-
-  /** Keeps overlapping deck ticks and key presses from starting duplicate usage requests. */
-  private refreshUsage(): Promise<void> {
-    if (this.usageRefresh) return this.usageRefresh;
-    this.usageRefresh = this.readUsage().finally(() => {
-      this.usageRefresh = null;
-    });
-    return this.usageRefresh;
-  }
-
-  /**
-   * A rejected token does not become valid by asking again sooner, and hammering a 429 only extends
-   * it, so a refusal from the API holds even against a forced refresh — a key press or a `doctor`
-   * run must not be a way to keep beating on a rate limit. A transport failure is different: it
-   * never reached the API, so pressing the key may as well try again.
-   */
-  private shouldFetchUsage(now: number, forceUsage: boolean): boolean {
-    this.syncBackoff(now);
-    const refusedByApi = this.usageFailures > 0;
-    if (now < this.usageBackoffUntil && (refusedByApi || !forceUsage)) return false;
-    return forceUsage || now - this.usageFetchedAt > USAGE_INTERVAL_MS;
-  }
-
-  /** True while the API itself is holding us off, as opposed to a local transport pause. */
-  refusedByApi(now = Date.now()): boolean {
-    return this.usageFailures > 0 && now < this.usageBackoffUntil;
-  }
-
-  /**
-   * Adopts a deadline another process wrote. Without this the long-running service would sit out
-   * its full wait even after `token:claude` stored a working token and cleared the file — the
-   * collector reads the file once, in its constructor. Only API-imposed waits are shared; a local
-   * transport pause is nobody else's business.
-   */
-  private syncBackoff(now: number): void {
-    if (this.usageFailures === 0) return;
-    const persisted = readBackoff(undefined, now);
-    this.usageBackoffUntil = persisted.retryAt;
-    this.usageFailures = persisted.failures;
+    return {
+      sessions: await this.readSessions(state),
+      usage: { provider: "claude", windows: [], updatedAt: now, error: null }
+    };
   }
 
   private async readSessions(state: PersistedState): Promise<SessionSnapshot[]> {
@@ -200,6 +74,9 @@ export class ClaudeCollector {
       if (!raw?.sessionId || !await claudeProcessAlive(raw.pid, this.sessionDirectory)) continue;
       const project = projectsBySession.get(raw.sessionId);
       const tail = project ? parseClaudeTail(await readTail(project.path, 768 * 1024), project.mtimeMs) : emptyClaudeTail();
+      // Claude Desktop starts at `/`, while each transcript event carries the real project cwd.
+      // Ignore uninformative locations so the final fallback remains the session name.
+      const cwd = informativeCwd(tail.cwd) ?? informativeCwd(raw.cwd);
       const status = String(raw.status || "idle").toLowerCase();
       const activityAt = Math.max(raw.updatedAt || 0, tail.activityAt, project?.mtimeMs || 0);
       const key = `claude:${raw.sessionId}`;
@@ -226,8 +103,8 @@ export class ClaudeCollector {
         isOpen: true,
         activityAt,
         completionAt,
-        cwd: raw.cwd,
-        label: projectLabel(raw.cwd, raw.name) ?? undefined,
+        cwd,
+        label: projectLabel(cwd, raw.name) ?? undefined,
         pid: raw.pid,
         entrypoint: raw.entrypoint
       });
@@ -235,80 +112,10 @@ export class ClaudeCollector {
 
     return sessions;
   }
-
-  private async readUsage(): Promise<void> {
-    this.usageFetchedAt = Date.now();
-    try {
-      const { token } = await readClaudeAccessToken();
-      const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "anthropic-beta": "oauth-2025-04-20",
-          "user-agent": "neo-agent-deck/0.3.1"
-        },
-        signal: AbortSignal.timeout(10_000)
-      });
-      if (!response.ok) {
-        const detail = await readErrorMessage(response);
-        // A missing scope is a property of the token, not a passing condition. Retrying on the
-        // normal ladder would spend requests forever on an answer that cannot change until the
-        // token does — and storing a new one clears the wait explicitly.
-        const scope = missingScope(detail);
-        const retryAfter = Number(response.headers.get("retry-after"));
-        this.backOff(
-          response.status,
-          scope ? SCOPE_BACKOFF_MS : Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1_000 : null
-        );
-        throw new Error(usageErrorMessage(response.status, this.usageBackoffUntil, Date.now(), scope));
-      }
-      const body = await response.json() as ClaudeUsageResponse;
-      const limits = body.limits || [];
-      const session = limits.find((limit) => limit.kind === "session");
-      const weekly = limits.find((limit) => limit.kind === "weekly_all");
-      this.usage = {
-        provider: "claude",
-        windows: [toWindow("5h", session), toWindow("7d", weekly)],
-        updatedAt: Date.now(),
-        error: null,
-        retryAt: null
-      };
-      this.usageFailures = 0;
-      this.usageBackoffUntil = 0;
-      clearBackoff();
-    } catch (error) {
-      // A transport failure (offline, DNS, timeout) has no status code and did not reach the API,
-      // so it gets the gentle backoff rather than the escalating one.
-      if (!this.usageBackoffUntil || this.usageBackoffUntil <= Date.now()) this.backOff(0, null);
-      // This string is rendered on a key and printed by `status` and `doctor`. Some errors quote
-      // their input back — fetch's header validation names the offending value — so redact before
-      // it can travel any further.
-      this.usage = {
-        ...this.usage,
-        updatedAt: Date.now(),
-        error: redactTokens(error instanceof Error ? error.message : String(error)),
-        retryAt: this.refusedByApi() ? this.usageBackoffUntil : null
-      };
-    }
-  }
-
-  private backOff(status: number, retryAfterMs: number | null): void {
-    const escalating = status === 401 || status === 403 || status === 429 || status >= 500;
-    if (!escalating) {
-      // Offline, DNS, timeout: the request never reached the API. Wait one normal interval and
-      // keep the failure count at zero so a forced refresh can still cut through.
-      this.usageFailures = 0;
-      this.usageBackoffUntil = Date.now() + USAGE_INTERVAL_MS;
-      return;
-    }
-    this.usageFailures += 1;
-    this.usageBackoffUntil = Date.now() + backoffWaitMs(this.usageFailures, retryAfterMs);
-    writeBackoff({ retryAt: this.usageBackoffUntil, failures: this.usageFailures });
-  }
 }
 
-// ponytail: the WSL liveness probe spawns wsl.exe; cache results briefly so a directory of session
-// files does not spawn one probe per file on every 3s poll. Raise the TTL or batch the probes into a
-// single wsl.exe call if WSL users still report refresh lag.
+// The WSL liveness probe spawns wsl.exe; cache results briefly so a directory of session files does
+// not spawn one probe per file on every 3s poll.
 const wslAliveCache = new Map<string, { alive: boolean; at: number }>();
 const WSL_ALIVE_TTL_MS = 8_000;
 
@@ -337,6 +144,7 @@ export function parseClaudeTail(text: string, fallbackMs: number): ClaudeTail {
   let lastEnd = 0;
   let lastAssistant = 0;
   let activityAt = 0;
+  let cwd: string | null = null;
   for (const line of text.split("\n")) {
     let event: Record<string, unknown>;
     try {
@@ -346,25 +154,23 @@ export function parseClaudeTail(text: string, fallbackMs: number): ClaudeTail {
     }
     const at = Date.parse(String(event.timestamp || "")) || fallbackMs;
     activityAt = Math.max(activityAt, at);
+    // Claude Desktop can emit `/` again after useful project-scoped events. Keep the newest
+    // informative path instead of letting a later root marker erase it.
+    if (typeof event.cwd === "string" && informativeCwd(event.cwd)) cwd = event.cwd;
     if (event.type === "user" && !event.toolUseResult) lastUser = Math.max(lastUser, at);
     const message = event.message as { stop_reason?: string | null } | undefined;
     if (event.type === "assistant") {
       lastAssistant = Math.max(lastAssistant, at);
-      // Any terminal stop reason ends the turn: end_turn, max_tokens, stop_sequence, refusal, ...
       if (message?.stop_reason && message.stop_reason !== "tool_use") lastEnd = Math.max(lastEnd, at);
     }
   }
-  return { lastUser, lastEnd, lastAssistant, activityAt };
+  return { lastUser, lastEnd, lastAssistant, activityAt, cwd };
 }
 
 function emptyClaudeTail(): ClaudeTail {
-  return { lastUser: 0, lastEnd: 0, lastAssistant: 0, activityAt: 0 };
+  return { lastUser: 0, lastEnd: 0, lastAssistant: 0, activityAt: 0, cwd: null };
 }
 
-function toWindow(label: string, limit?: ClaudeUsageLimit): UsageWindow {
-  return {
-    label,
-    percent: clampPercent(limit?.percent),
-    resetsAt: limit?.resets_at ? Date.parse(limit.resets_at) : null
-  };
+function informativeCwd(value: string | null | undefined): string | undefined {
+  return value && projectLabel(value) ? value : undefined;
 }

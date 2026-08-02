@@ -12,8 +12,8 @@ import {
 } from "../src/config.js";
 
 const KEY_MODULES: readonly KeyModule[] = [
-  "claude.status", "codex.status", "opencode.status",
-  "claude.usage", "codex.usage", "opencode.usage",
+  "claude.status", "codex.status",
+  "codex.usage",
   "session.1", "session.2", "session.3", "session.4",
   "projects", "summary", "info", "blank"
 ];
@@ -21,10 +21,7 @@ const KEY_MODULES: readonly KeyModule[] = [
 const KEY_MODULE_HELP: Record<KeyModule, string> = {
   "claude.status": "Claude session status (tap acknowledges attention)",
   "codex.status": "Codex session status (tap acknowledges attention)",
-  "opencode.status": "OpenCode session status (tap acknowledges attention)",
-  "claude.usage": "Claude plan usage (tap forces a usage refresh)",
-  "codex.usage": "Codex rate-limit usage (tap forces a usage refresh)",
-  "opencode.usage": "OpenCode token usage (tap forces a usage refresh)",
+  "codex.usage": "Codex rate-limit usage (tap opens the configured analytics page)",
   "session.1": "Most urgent session: project name and state (tap raises its window)",
   "session.2": "Second most urgent session (tap raises its window)",
   "session.3": "Third most urgent session (tap raises its window)",
@@ -35,12 +32,10 @@ const KEY_MODULE_HELP: Record<KeyModule, string> = {
   blank: "Dim empty tile (tap just refreshes)"
 };
 
-const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all", "sessions"];
+const INFO_MODULES: readonly InfoModule[] = ["codex", "all", "sessions"];
 
 const INFO_MODULE_HELP: Record<InfoModule, string> = {
-  claude: "Claude 5-hour and weekly plan usage",
   codex: "Codex rate-limit usage",
-  opencode: "OpenCode 24-hour and 7-day token usage",
   all: "Total open / working / attention sessions",
   sessions: "Names the live sessions across all agents"
 };
@@ -73,7 +68,7 @@ const rl = createInterface({ input: process.stdin, output: process.stdout });
 try {
   const current = loadConfig();
   console.log("┌─────────────────────────────────────────────┐");
-  console.log("│          NEO AGENT DECK · SETUP             │");
+  console.log("│  AGENT STREAM DECK NEO · CLAUDE + CODEX     │");
   console.log("└─────────────────────────────────────────────┘");
   console.log("\nCurrent layout (also the recommended default on a fresh install):");
   printLayout(current.keys);
@@ -142,7 +137,7 @@ async function promptInfoBar(io: Interface, current: InfoModule[]): Promise<Info
     console.log(`  ${index + 1}. ${module.padEnd(9)} ${INFO_MODULE_HELP[module]}`);
   });
   for (;;) {
-    const answer = (await io.question(`Pages in order, comma-separated (e.g. "claude,all" or "1,4") [${current.join(",")}]: `)).trim();
+    const answer = (await io.question(`Pages in order, comma-separated (e.g. "sessions,codex,all" or "1,2") [${current.join(",")}]: `)).trim();
     if (!answer) return [...current];
     const picked: InfoModule[] = [];
     let valid = true;
@@ -205,7 +200,7 @@ function printResult(cfg: DeckConfig): void {
 }
 
 function printHelp(): void {
-  console.log(`Neo Agent Deck setup
+  console.log(`Agent Stream Deck Neo Claude Code & Codex setup
 
 Usage: npm run setup [-- <flag>]
 

@@ -4,6 +4,7 @@ import { Dashboard } from "./dashboard.js";
 import { actionForControl } from "./input.js";
 import { focusSession, openUrl } from "./lib/focus.js";
 import { AttentionNotifier } from "./lib/notify.js";
+import { sanitizeLabel } from "./lib/util.js";
 import { renderDeckBuffers } from "./render.js";
 import type { SessionSnapshot } from "./types.js";
 
@@ -61,12 +62,12 @@ export class NeoAgentDeck {
     this.deck.on("down", (control) => void this.onKeyDown(control.index));
     try {
       await this.deck.setBrightness(Math.max(0, Math.min(100, this.dashboard.config.brightness)));
-      await this.refresh(true);
+      await this.refresh();
     } catch (error) {
       await this.handleDeviceError(error);
       return false;
     }
-    this.timer = setInterval(() => void this.refresh(false).catch((error) => this.handleDeviceError(error)), POLL_INTERVAL_MS);
+    this.timer = setInterval(() => void this.refresh().catch((error) => this.handleDeviceError(error)), POLL_INTERVAL_MS);
     console.log("Neo connected; live dashboard active.");
     await new Promise<void>((resolve) => {
       this.disconnectResolve = resolve;
@@ -141,9 +142,9 @@ export class NeoAgentDeck {
         const allIndex = config.infoBar.indexOf("all");
         this.dashboard.state.setInfoPage(allIndex >= 0 ? allIndex : config.infoBar.indexOf(config.restingPage));
       }
-      await this.refresh(action.forceUsage);
+      await this.refresh();
     } catch (error) {
-      console.error("Button action failed:", error);
+      console.error(`Button action failed: ${safeError(error)}`);
     }
   }
 
@@ -159,32 +160,30 @@ export class NeoAgentDeck {
         if (!result.focused) console.warn(`Could not raise ${describe}: ${result.detail}`);
       })
       .catch((error) => {
-        console.warn(`Could not raise ${describe}: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(`Could not raise ${sanitizeLabel(describe)}: ${safeError(error)}`);
       });
   }
 
-  private async refresh(forceUsage: boolean): Promise<void> {
+  private async refresh(): Promise<void> {
     const deck = this.deck;
     if (!deck || this.rendering) return;
     this.rendering = true;
     try {
       let buffers: Awaited<ReturnType<typeof renderDeckBuffers>>;
       try {
-        // Session files are local and fast; the network usage refresh is started as a single-flight
-        // background job so a slow endpoint never holds the HID render/key lock.
-        const snapshot = await this.dashboard.collect(forceUsage, true);
+        const snapshot = await this.dashboard.collect();
         // Not awaited: osascript can take seconds, and this runs inside the render loop with
         // `rendering` held, which would blank the deck and swallow key presses for that whole time.
         // The notifier absorbs its own errors, so nothing is lost by letting it finish on its own.
         void this.notifier.handle(snapshot).catch((error) => {
-          console.warn(`Notification failed: ${error instanceof Error ? error.message : String(error)}`);
+          console.warn(`Notification failed: ${safeError(error)}`);
         });
         const page = this.dashboard.state.data.infoPage;
         buffers = await renderDeckBuffers(snapshot, page, this.dashboard.config);
       } catch (error) {
         // Collector/render failures are not device failures; skip this frame. Deduplicate the
         // message so a persistent failure does not grow the log file every POLL_INTERVAL_MS.
-        const message = error instanceof Error ? error.message : String(error);
+        const message = safeError(error);
         if (message !== this.lastRefreshError) {
           this.lastRefreshError = message;
           console.warn(`Refresh skipped: ${message}`);
@@ -200,4 +199,8 @@ export class NeoAgentDeck {
       this.rendering = false;
     }
   }
+}
+
+function safeError(error: unknown): string {
+  return sanitizeLabel(error instanceof Error ? error.message : String(error));
 }

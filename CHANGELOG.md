@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The public project is now named Agent Stream Deck Neo Claude Code & Codex and
+  is documented as an intentionally diverged fork of `m-a-b-u/neo-agent-deck`.
+- This independent fork now focuses exclusively on Claude Code and Codex. The
+  OpenCode collector, SQLite backend, modules, diagnostics, and setup options
+  were removed.
+- Claude subscription usage, credential discovery, the undocumented OAuth
+  request, token-file tooling, and related backoff state were removed. Claude
+  session status remains local-only.
+- The default layout now combines provider status, Codex usage details, two
+  ranked session keys, project aggregation, notifications, and InfoBar pages.
+
+### Fixed
+
+- Error logging, notifications, render labels, project labels, and URL-opening
+  failures now redact token-shaped or control text before it can reach output.
+- Equivalent working-directory spellings now group as one project, expired
+  reset timestamps are ignored, and ambiguous Codex processes no longer focus
+  an arbitrary terminal window.
+- Claude Desktop sessions now take their project directory from the transcript
+  before falling back to the root-started session metadata or session name.
+
 ## [0.3.1] - 2026-07-17
 
 ### Fixed

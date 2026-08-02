@@ -3,9 +3,12 @@ import { DEFAULT_CONFIG, type DeckConfig } from "../src/config.js";
 import { formatCompactNumber, renderBlankKey, renderDeckBuffers, renderInfoBar, renderInfoKey, renderProviderKey, renderSummaryKey, renderUsageKey } from "../src/render.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, UsageSnapshot } from "../src/types.js";
 
-const usage = (provider: Provider): UsageSnapshot => provider === "opencode"
-  ? { provider, windows: [{ label: "24h", value: 473_000, unit: "tokens", resetsAt: null }, { label: "7d", value: 5_180_000, unit: "tokens", resetsAt: null }], costUsd: 0, updatedAt: 1, error: null }
-  : { provider, windows: [{ label: provider === "claude" ? "5h" : "1w", percent: provider === "claude" ? 12 : 24, resetsAt: null }], updatedAt: 1, error: null };
+const usage = (provider: Provider): UsageSnapshot => ({
+  provider,
+  windows: [{ label: provider === "claude" ? "5h" : "1w", percent: provider === "claude" ? 12 : 24, resetsAt: null }],
+  updatedAt: 1,
+  error: null
+});
 
 const provider = (id: Provider, state: ProviderSnapshot["state"]): ProviderSnapshot => ({
   provider: id,
@@ -22,8 +25,7 @@ const provider = (id: Provider, state: ProviderSnapshot["state"]): ProviderSnaps
 const snapshot: DashboardSnapshot = {
   providers: {
     claude: provider("claude", "working"),
-    codex: provider("codex", "attention"),
-    opencode: provider("opencode", "idle")
+    codex: provider("codex", "attention")
   },
   openCount: 2,
   workingCount: 1,
@@ -39,7 +41,7 @@ describe("Neo rendering", () => {
     // avoids artificial contention during Sharp's first Windows font scan.
     const buffers = [
       await renderProviderKey(snapshot.providers.claude),
-      await renderUsageKey(snapshot.providers.opencode.usage),
+      await renderUsageKey(snapshot.providers.codex.usage),
       await renderSummaryKey(snapshot),
       await renderInfoKey(3, 4),
       await renderBlankKey()
@@ -64,7 +66,7 @@ describe("Neo rendering", () => {
     const config: DeckConfig = {
       ...DEFAULT_CONFIG,
       brightness: 40,
-      keys: ["summary", "blank", "claude.usage", "info", "blank", "codex.status", "opencode.usage", "blank"],
+      keys: ["summary", "blank", "session.1", "info", "blank", "codex.status", "codex.usage", "blank"],
       infoBar: ["codex", "all"],
       restingPage: "all"
     };

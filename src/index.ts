@@ -4,7 +4,7 @@ import { NeoAgentDeck } from "./deck.js";
 const app = new NeoAgentDeck();
 
 async function shutdown(signal: string): Promise<void> {
-  console.log(`Received ${signal}; stopping Neo Agent Deck.`);
+  console.log(`Received ${signal}; stopping Agent Stream Deck Neo Claude Code & Codex.`);
   await app.stop();
   process.exit(0);
 }

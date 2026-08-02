@@ -1,6 +1,6 @@
 import { ClaudeCollector } from "./collectors/claude.js";
 import { CodexCollector } from "./collectors/codex.js";
-import { OpenCodeCollector } from "./collectors/opencode.js";
+import path from "node:path";
 import { configDir, loadConfig, type DeckConfig } from "./config.js";
 import { StateStore } from "./state.js";
 import type { DashboardSnapshot, ProjectSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "./types.js";
@@ -15,7 +15,6 @@ export class Dashboard {
   readonly state: StateStore;
   private readonly claude = new ClaudeCollector();
   private readonly codex = new CodexCollector();
-  private readonly opencode = new OpenCodeCollector();
   private snapshot: DashboardSnapshot | null = null;
   private sessionSlots: string[] = [];
 
@@ -26,16 +25,14 @@ export class Dashboard {
     this.state = new StateStore(dir, this.config.infoBar.length, restingIndex);
   }
 
-  async collect(forceUsage = false, backgroundUsage = false): Promise<DashboardSnapshot> {
-    const [claude, codex, opencode] = await Promise.all([
-      this.claude.collect(this.state.data, forceUsage, backgroundUsage),
-      this.codex.collect(this.state.data),
-      this.opencode.collect(this.state.data)
+  async collect(): Promise<DashboardSnapshot> {
+    const [claude, codex] = await Promise.all([
+      this.claude.collect(this.state.data),
+      this.codex.collect(this.state.data)
     ]);
     const providers: Record<Provider, ProviderSnapshot> = {
       claude: summarizeProvider("claude", claude),
-      codex: summarizeProvider("codex", codex),
-      opencode: summarizeProvider("opencode", opencode)
+      codex: summarizeProvider("codex", codex)
     };
     const all = Object.values(providers).flatMap((provider) => provider.sessions);
     const ranked = stabilizeSessionSlots(all, this.sessionSlots, sessionSlotCount(this.config));
@@ -153,7 +150,7 @@ function sessionSlotCount(config: DeckConfig): number {
 export function groupProjects(sessions: readonly SessionSnapshot[]): ProjectSnapshot[] {
   const byProject = new Map<string, ProjectSnapshot>();
   for (const session of sessions) {
-    const id = session.cwd || session.key;
+    const id = session.cwd ? normalizedProjectId(session.cwd) : session.key;
     const existing = byProject.get(id);
     const entry = existing ?? {
       id,
@@ -171,6 +168,15 @@ export function groupProjects(sessions: readonly SessionSnapshot[]): ProjectSnap
   }
   return [...byProject.values()].sort((a, b) =>
     b.attention - a.attention || b.working - a.working || b.activityAt - a.activityAt || a.id.localeCompare(b.id));
+}
+
+function normalizedProjectId(cwd: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(cwd) || /^\\\\/.test(cwd)) {
+    const normalized = path.win32.normalize(cwd).toLowerCase();
+    return normalized.replace(/\\+$/, "") || normalized;
+  }
+  const normalized = path.posix.normalize(cwd);
+  return normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
 }
 
 export function summarizeProvider(provider: Provider, result: CollectorResult): ProviderSnapshot {

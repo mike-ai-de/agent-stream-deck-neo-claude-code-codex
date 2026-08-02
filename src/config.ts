@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 
 export type KeyModule =
-  | "claude.status" | "codex.status" | "opencode.status"
-  | "claude.usage" | "codex.usage" | "opencode.usage"
+  | "claude.status" | "codex.status"
+  | "codex.usage"
   | "session.1" | "session.2" | "session.3" | "session.4"
   | "projects" | "summary" | "info" | "blank";
 
@@ -14,7 +14,7 @@ export function sessionSlot(module: KeyModule): number | null {
   return match ? Number(match[1]) - 1 : null;
 }
 
-export type InfoModule = "claude" | "codex" | "opencode" | "all" | "sessions";
+export type InfoModule = "codex" | "all" | "sessions";
 
 export interface DeckConfig {
   brightness: number;
@@ -40,11 +40,11 @@ export interface DeckConfig {
 export const DEFAULT_CONFIG: DeckConfig = {
   brightness: 70,
   keys: [
-    "claude.status", "codex.status", "opencode.status", "summary",
-    "claude.usage", "codex.usage", "opencode.usage", "info"
+    "codex.status", "codex.usage", "claude.status", "summary",
+    "session.1", "session.2", "projects", "info"
   ],
-  infoBar: ["claude", "codex", "opencode", "all"],
-  restingPage: "all",
+  infoBar: ["sessions", "codex", "all"],
+  restingPage: "sessions",
   usageWarnPercent: 80,
   usageCriticalPercent: 95,
   showProjectLabels: true,
@@ -55,13 +55,13 @@ export const DEFAULT_CONFIG: DeckConfig = {
 };
 
 const KEY_MODULES: readonly KeyModule[] = [
-  "claude.status", "codex.status", "opencode.status",
-  "claude.usage", "codex.usage", "opencode.usage",
+  "claude.status", "codex.status",
+  "codex.usage",
   "session.1", "session.2", "session.3", "session.4",
   "projects", "summary", "info", "blank"
 ];
 
-const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all", "sessions"];
+const INFO_MODULES: readonly InfoModule[] = ["codex", "all", "sessions"];
 
 export function configDir(): string {
   return process.env.NEO_AGENT_DECK_HOME || path.join(os.homedir(), ".neo-agent-deck");

@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { backoffWaitMs, missingScope, usageErrorMessage } from "../src/collectors/claude.js";
 import { parseCodexCwd, parseCodexMeta, parseCodexProcessCwds, parseCodexProcessList } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, sessionSlot, type DeckConfig } from "../src/config.js";
 import { groupProjects, pickPrimary, rankSessions, stabilizeSessionSlots } from "../src/dashboard.js";
 import { actionForControl } from "../src/input.js";
-import { isWellFormedToken, redactTokens } from "../src/lib/claude-auth.js";
 import { isFocusable } from "../src/lib/focus.js";
 import { AttentionNotifier } from "../src/lib/notify.js";
-import { clearBackoff, MAX_BACKOFF_MS, readBackoff, writeBackoff } from "../src/lib/usage-backoff.js";
 import { formatCountdown, projectLabel } from "../src/lib/util.js";
 import { leadingWindow, renderProviderKey, renderSessionKey, renderUsageKey, soonestReset, usageLevelFor } from "../src/render.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "../src/types.js";
@@ -44,8 +41,7 @@ const providerView = (overrides: Partial<ProviderSnapshot> = {}): ProviderSnapsh
 const snapshotWith = (claude: ProviderSnapshot): DashboardSnapshot => ({
   providers: {
     claude,
-    codex: providerView({ provider: "codex" }),
-    opencode: providerView({ provider: "opencode" })
+    codex: providerView({ provider: "codex" })
   },
   openCount: claude.openCount,
   workingCount: claude.workingCount,
@@ -78,7 +74,7 @@ describe("countdown formatting", () => {
 
 describe("project labels", () => {
   it("uses the working directory name", () => {
-    expect(projectLabel("/Users/me/Documents/MediLog")).toBe("MediLog");
+    expect(projectLabel("/Users/me/Documents/SaleSync")).toBe("SaleSync");
     expect(projectLabel("/Users/me/code/api/")).toBe("api");
   });
 
@@ -100,6 +96,10 @@ describe("project labels", () => {
   it("truncates to fit a key", () => {
     expect(projectLabel("/x/a-very-long-project-name")).toHaveLength(14);
     expect(projectLabel("/x/a-very-long-project-name")).toMatch(/…$/);
+  });
+
+  it("redacts token-shaped and control text before it can reach a display or log", () => {
+    expect(projectLabel(undefined, "sk-ant-oat01-SECRETVALUE123\nforged log line")).toBe("sk-ant-… forg…");
   });
 });
 
@@ -182,14 +182,14 @@ describe("status key detail line", () => {
     const withLabel = providerView({
       state: "attention",
       attentionCount: 1,
-      primary: session({ state: "attention", label: "MediLog" })
+      primary: session({ state: "attention", label: "SaleSync" })
     });
     const withoutLabel = providerView({ state: "attention", attentionCount: 1, primary: session({ state: "attention" }) });
     expect((await renderProviderKey(withLabel, DEFAULT_CONFIG)).equals(await renderProviderKey(withoutLabel, DEFAULT_CONFIG))).toBe(false);
   });
 
   it("honours showProjectLabels being switched off", async () => {
-    const view = providerView({ state: "attention", attentionCount: 1, primary: session({ state: "attention", label: "MediLog" }) });
+    const view = providerView({ state: "attention", attentionCount: 1, primary: session({ state: "attention", label: "SaleSync" }) });
     const off: DeckConfig = { ...DEFAULT_CONFIG, showProjectLabels: false };
     const plain = providerView({ state: "attention", attentionCount: 1, primary: session({ state: "attention" }) });
     expect((await renderProviderKey(view, off)).equals(await renderProviderKey(plain, off))).toBe(true);
@@ -197,7 +197,7 @@ describe("status key detail line", () => {
 });
 
 describe("attention notifier", () => {
-  const waiting = (key = "claude:a", label = "MediLog") => session({ key, state: "attention", label });
+  const waiting = (key = "claude:a", label = "SaleSync") => session({ key, state: "attention", label });
   const attention = (...keys: string[]) => {
     const sessions = (keys.length ? keys : ["claude:a"]).map((key) => waiting(key));
     return providerView({
@@ -221,7 +221,7 @@ describe("attention notifier", () => {
     await notifier.handle(snapshotWith(providerView()), NOW);
     expect(await notifier.handle(snapshotWith(attention()), NOW + 1_000)).toEqual(["claude"]);
     expect(await notifier.handle(snapshotWith(attention()), NOW + 2_000)).toEqual([]);
-    expect(sent).toEqual(["Claude Code · MediLog"]);
+    expect(sent).toEqual(["Claude Code · SaleSync"]);
   });
 
   it("re-arms after the provider goes quiet, but respects the re-notify interval", async () => {
@@ -255,20 +255,6 @@ describe("attention notifier", () => {
     await notifier.handle(snapshotWith(providerView()), NOW);
     expect(await notifier.handle(snapshotWith(attention()), NOW + 1_000)).toEqual([]);
     expect(sent).toEqual([]);
-  });
-});
-
-describe("usage backoff messaging", () => {
-  it("names the likely cause and when it will try again", () => {
-    expect(usageErrorMessage(403, NOW + 10 * 60_000, NOW)).toContain("token rejected");
-    expect(usageErrorMessage(403, NOW + 10 * 60_000, NOW)).toContain("retrying in 10m");
-    expect(usageErrorMessage(429, NOW + 20 * 60_000, NOW)).toContain("rate limited");
-    expect(usageErrorMessage(503, NOW + 5 * 60_000, NOW)).toContain("Anthropic API error");
-    expect(usageErrorMessage(418, NOW + 5 * 60_000, NOW)).toContain("unexpected response");
-  });
-
-  it("never advertises a wait shorter than a minute", () => {
-    expect(usageErrorMessage(429, NOW + 1_000, NOW)).toContain("retrying in 1m");
   });
 });
 
@@ -349,13 +335,13 @@ describe("session ranking and keys", () => {
 
   it("routes a session key tap to a focus action for that slot", () => {
     const config: DeckConfig = { ...DEFAULT_CONFIG, keys: ["session.1", "session.2", "blank", "summary", "info", "blank", "blank", "blank"] };
-    expect(actionForControl(0, config)).toEqual({ type: "focus-session", slot: 0, forceUsage: false });
-    expect(actionForControl(1, config)).toEqual({ type: "focus-session", slot: 1, forceUsage: false });
-    expect(actionForControl(2, config)).toEqual({ type: "refresh", forceUsage: false });
+    expect(actionForControl(0, config)).toEqual({ type: "focus-session", slot: 0 });
+    expect(actionForControl(1, config)).toEqual({ type: "focus-session", slot: 1 });
+    expect(actionForControl(2, config)).toEqual({ type: "refresh" });
   });
 
   it("renders a filled slot differently from an empty one, both at native size", async () => {
-    const filled = await renderSessionKey(session({ state: "attention", label: "MediLog" }), 0);
+    const filled = await renderSessionKey(session({ state: "attention", label: "SaleSync" }), 0);
     const empty = await renderSessionKey(null, 0);
     expect(filled.length).toBe(96 * 96 * 4);
     expect(empty.length).toBe(96 * 96 * 4);
@@ -364,65 +350,6 @@ describe("session ranking and keys", () => {
 
   it("survives a session with no project label", async () => {
     expect((await renderSessionKey(session({ state: "working" }), 1)).length).toBe(96 * 96 * 4);
-  });
-});
-
-describe("usage scope errors", () => {
-  it("extracts the scope name the API demands", () => {
-    expect(missingScope("OAuth token does not meet scope requirement user:profile")).toBe("user:profile");
-    expect(missingScope("Rate limited. Please try again later.")).toBeNull();
-    expect(missingScope("")).toBeNull();
-  });
-
-  it("explains the fix instead of promising a retry that cannot help", () => {
-    const message = usageErrorMessage(403, NOW + 60_000, NOW, "user:profile");
-    expect(message).toContain("user:profile");
-    expect(message).toContain("/login");
-    expect(message).not.toContain("retrying in");
-  });
-});
-
-describe("backoff ladder", () => {
-  const MIN = 60_000;
-
-  it("starts at the first rung rather than skipping it", () => {
-    expect(backoffWaitMs(1, null)).toBe(5 * MIN);
-    expect(backoffWaitMs(2, null)).toBe(10 * MIN);
-    expect(backoffWaitMs(3, null)).toBe(20 * MIN);
-    expect(backoffWaitMs(4, null)).toBe(40 * MIN);
-    expect(backoffWaitMs(5, null)).toBe(60 * MIN);
-  });
-
-  it("holds at the last rung however many failures accumulate", () => {
-    expect(backoffWaitMs(6, null)).toBe(60 * MIN);
-    expect(backoffWaitMs(500, null)).toBe(60 * MIN);
-  });
-
-  it("honours a longer Retry-After but never beyond the persisted cap", () => {
-    expect(backoffWaitMs(1, 30 * MIN)).toBe(30 * MIN);
-    expect(backoffWaitMs(1, 1 * MIN)).toBe(5 * MIN);
-    // A 24-hour Retry-After would otherwise outlive what readBackoff will reload.
-    expect(backoffWaitMs(1, 24 * 60 * MIN)).toBe(MAX_BACKOFF_MS);
-  });
-});
-
-describe("token hygiene", () => {
-  it("redacts anything token-shaped from text that may be printed", () => {
-    const leaked = 'Headers.append: "Bearer sk-ant-oat01-SECRETVALUE123" is invalid';
-    expect(redactTokens(leaked)).toBe('Headers.append: "Bearer sk-ant-…" is invalid');
-    expect(redactTokens(leaked)).not.toContain("SECRETVALUE123");
-  });
-
-  it("leaves ordinary error text alone", () => {
-    expect(redactTokens("Claude usage HTTP 403")).toBe("Claude usage HTTP 403");
-  });
-
-  it("rejects tokens that could not be an HTTP header value", () => {
-    expect(isWellFormedToken("sk-ant-oat01-abc")).toBe(true);
-    // An interior newline survives trim() and is what makes fetch quote the value back.
-    expect(isWellFormedToken("sk-ant-oat01-abc\nnote")).toBe(false);
-    expect(isWellFormedToken("sk-ant oat01")).toBe(false);
-    expect(isWellFormedToken("")).toBe(false);
   });
 });
 
@@ -442,13 +369,18 @@ describe("usage window selection", () => {
 
   it("picks the soonest reset across all windows", () => {
     const windows = [window("7d", 30, NOW + 86_400_000), window("5h", 99, NOW + 600_000)];
-    expect(soonestReset(windows)?.label).toBe("5h");
-    expect(soonestReset([window("5h", 1)])).toBeUndefined();
+    expect(soonestReset(windows, NOW)?.label).toBe("5h");
+    expect(soonestReset([window("5h", 1)], NOW)).toBeUndefined();
+  });
+
+  it("ignores expired and invalid reset timestamps when a future reset exists", () => {
+    const windows = [window("expired", 99, NOW - 1), window("invalid", 50, Number.NaN), window("future", 10, NOW + 60_000)];
+    expect(soonestReset(windows, NOW)?.label).toBe("future");
   });
 
   it("warns on the 5h window even when the weekly one is calm", async () => {
-    const near: UsageSnapshot = { provider: "claude", windows: [window("5h", 99), window("7d", 10)], updatedAt: 1, error: null };
-    const calm: UsageSnapshot = { provider: "claude", windows: [window("5h", 10), window("7d", 10)], updatedAt: 1, error: null };
+    const near: UsageSnapshot = { provider: "codex", windows: [window("5h", 99), window("7d", 10)], updatedAt: 1, error: null };
+    const calm: UsageSnapshot = { provider: "codex", windows: [window("5h", 10), window("7d", 10)], updatedAt: 1, error: null };
     expect((await renderUsageKey(near, DEFAULT_CONFIG)).equals(await renderUsageKey(calm, DEFAULT_CONFIG))).toBe(false);
     expect(usageLevelFor(leadingWindow(near.windows)?.percent, DEFAULT_CONFIG)).toBe("critical");
   });
@@ -467,64 +399,19 @@ describe("focusability", () => {
   });
 
   it("does not offer to open a window it cannot raise", async () => {
-    const raisable = await renderSessionKey(session({ state: "attention", label: "MediLog", pid: 1234 }), 0);
-    const notRaisable = await renderSessionKey(session({ state: "attention", label: "MediLog" }), 0);
+    const raisable = await renderSessionKey(session({ state: "attention", label: "SaleSync", pid: 1234 }), 0);
+    const notRaisable = await renderSessionKey(session({ state: "attention", label: "SaleSync" }), 0);
     expect(raisable.equals(notRaisable)).toBe(false);
-  });
-});
-
-describe("persisted usage backoff", () => {
-  const withDir = (run: (dir: string) => void): void => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "neo-deck-backoff-"));
-    try {
-      run(dir);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  };
-
-  it("round-trips a deadline so a separate process inherits the wait", () => {
-    withDir((dir) => {
-      writeBackoff({ retryAt: NOW + 20 * 60_000, failures: 3 }, dir);
-      expect(readBackoff(dir, NOW)).toEqual({ retryAt: NOW + 20 * 60_000, failures: 3 });
-    });
-  });
-
-  it("ignores a deadline that has passed or is absurdly far out", () => {
-    withDir((dir) => {
-      writeBackoff({ retryAt: NOW - 1, failures: 3 }, dir);
-      expect(readBackoff(dir, NOW).retryAt).toBe(0);
-
-      // A clock change must not lock usage out for days.
-      writeBackoff({ retryAt: NOW + 48 * 3_600_000, failures: 3 }, dir);
-      expect(readBackoff(dir, NOW).retryAt).toBe(0);
-    });
-  });
-
-  it("treats a missing or corrupt file as no backoff", () => {
-    withDir((dir) => {
-      expect(readBackoff(dir, NOW)).toEqual({ retryAt: 0, failures: 0 });
-      fs.writeFileSync(path.join(dir, "usage-backoff.json"), "{not json");
-      expect(readBackoff(dir, NOW)).toEqual({ retryAt: 0, failures: 0 });
-    });
-  });
-
-  it("clears the deadline on request", () => {
-    withDir((dir) => {
-      writeBackoff({ retryAt: NOW + 20 * 60_000, failures: 2 }, dir);
-      clearBackoff(dir);
-      expect(readBackoff(dir, NOW).retryAt).toBe(0);
-    });
   });
 });
 
 describe("codex session metadata", () => {
   it("reads cwd out of the session_meta header", () => {
     const head = [
-      JSON.stringify({ type: "session_meta", payload: { session_id: "x", cwd: "/Users/me/Documents/MediLog" } }),
+      JSON.stringify({ type: "session_meta", payload: { session_id: "x", cwd: "/Users/me/Documents/SaleSync" } }),
       JSON.stringify({ type: "event_msg", payload: { type: "task_started" } })
     ].join("\n");
-    expect(parseCodexCwd(head)).toBe("/Users/me/Documents/MediLog");
+    expect(parseCodexCwd(head)).toBe("/Users/me/Documents/SaleSync");
   });
 
   it("tolerates a truncated final line and a missing cwd", () => {
@@ -550,6 +437,10 @@ describe("codex session metadata", () => {
     expect(parseCodexProcessList(ps)).toEqual([10, 11]);
     expect(parseCodexProcessCwds("p10\nfcwd\nn/Users/me/repo\np11\nfcwd\nn/Users/me/other\n"))
       .toEqual(new Map([["/Users/me/repo", 10], ["/Users/me/other", 11]]));
+  });
+
+  it("does not guess a terminal when multiple Codex processes share one cwd", () => {
+    expect(parseCodexProcessCwds("p10\nfcwd\nn/Users/me/repo\np11\nfcwd\nn/Users/me/repo\n")).toEqual(new Map());
   });
 });
 
