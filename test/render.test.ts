@@ -28,7 +28,8 @@ const snapshot: DashboardSnapshot = {
   openCount: 2,
   workingCount: 1,
   attentionCount: 1,
-  updatedAt: 1
+  updatedAt: 1,
+  ranked: []
 };
 
 describe("Neo rendering", () => {

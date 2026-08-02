@@ -58,6 +58,11 @@ export interface DashboardSnapshot {
   workingCount: number;
   attentionCount: number;
   updatedAt: number;
+  /**
+   * Every session across all providers, ranked by how much it wants you: waiting first, then
+   * working, then idle, most recent first within each group. Feeds the `session.N` keys.
+   */
+  ranked: SessionSnapshot[];
 }
 
 export interface PersistedState {

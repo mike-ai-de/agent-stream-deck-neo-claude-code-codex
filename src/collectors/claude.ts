@@ -38,10 +38,34 @@ const USAGE_INTERVAL_MS = 300_000;
 /** Escalating waits after the API refuses us, indexed by consecutive failure count. */
 const USAGE_BACKOFF_STEPS = [5, 10, 20, 40, 60].map((minutes) => minutes * 60_000);
 
-export function usageErrorMessage(status: number, retryAt: number, now = Date.now()): string {
+/** A scope the token will never grow into; wait long and rely on a new token to reset us. */
+const SCOPE_BACKOFF_MS = 4 * 60 * 60_000;
+
+/** Extracts the scope name from an Anthropic permission_error, e.g. "user:profile". */
+export function missingScope(detail: string): string | null {
+  return detail.match(/scope requirement ([\w:.-]+)/)?.[1] ?? null;
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = await response.text();
+    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    return parsed.error?.message || body;
+  } catch {
+    return "";
+  }
+}
+
+export function usageErrorMessage(status: number, retryAt: number, now = Date.now(), scope: string | null = null): string {
+  if (scope) {
+    // No countdown here on purpose: the wait is not what the reader should act on.
+    return `Claude usage needs the ${scope} scope, which this token does not have. `
+      + "Tokens from `claude setup-token` are inference-only; run /login in the Claude Code CLI, "
+      + "then `npm run token:claude -- --clear` to fall back to the Keychain.";
+  }
   const minutes = Math.max(1, Math.round((retryAt - now) / 60_000));
   const reason = status === 401 || status === 403
-    ? "token rejected; a setup-token may lack usage access — sign in to Claude Code once"
+    ? "token rejected"
     : status === 429
       ? "rate limited"
       : status >= 500
@@ -176,10 +200,17 @@ export class ClaudeCollector {
         signal: AbortSignal.timeout(10_000)
       });
       if (!response.ok) {
-        // Honour Retry-After when the server sends one; otherwise escalate our own wait.
+        const detail = await readErrorMessage(response);
+        // A missing scope is a property of the token, not a passing condition. Retrying on the
+        // normal ladder would spend requests forever on an answer that cannot change until the
+        // token does — and storing a new one clears the wait explicitly.
+        const scope = missingScope(detail);
         const retryAfter = Number(response.headers.get("retry-after"));
-        this.backOff(response.status, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1_000 : null);
-        throw new Error(usageErrorMessage(response.status, this.usageBackoffUntil));
+        this.backOff(
+          response.status,
+          scope ? SCOPE_BACKOFF_MS : Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1_000 : null
+        );
+        throw new Error(usageErrorMessage(response.status, this.usageBackoffUntil, Date.now(), scope));
       }
       const body = await response.json() as ClaudeUsageResponse;
       const limits = body.limits || [];

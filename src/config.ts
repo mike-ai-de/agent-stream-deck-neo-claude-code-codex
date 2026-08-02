@@ -5,7 +5,14 @@ import path from "node:path";
 export type KeyModule =
   | "claude.status" | "codex.status" | "opencode.status"
   | "claude.usage" | "codex.usage" | "opencode.usage"
+  | "session.1" | "session.2" | "session.3" | "session.4"
   | "summary" | "info" | "blank";
+
+/** Slot number for a `session.N` module, or null for every other module. */
+export function sessionSlot(module: KeyModule): number | null {
+  const match = /^session\.([1-4])$/.exec(module);
+  return match ? Number(match[1]) - 1 : null;
+}
 
 export type InfoModule = "claude" | "codex" | "opencode" | "all";
 
@@ -47,6 +54,7 @@ export const DEFAULT_CONFIG: DeckConfig = {
 const KEY_MODULES: readonly KeyModule[] = [
   "claude.status", "codex.status", "opencode.status",
   "claude.usage", "codex.usage", "opencode.usage",
+  "session.1", "session.2", "session.3", "session.4",
   "summary", "info", "blank"
 ];
 

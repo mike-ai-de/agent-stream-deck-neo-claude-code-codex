@@ -11,6 +11,7 @@
  */
 import fs from "node:fs";
 import { configDir } from "../src/config.js";
+import { missingScope } from "../src/collectors/claude.js";
 import { readClaudeAccessToken, tokenFilePath } from "../src/lib/claude-auth.js";
 import { clearBackoff, readBackoff } from "../src/lib/usage-backoff.js";
 
@@ -76,7 +77,52 @@ clearBackoff();
 
 console.log(`\nStored ${token.length} characters at ${file} (mode 600).`);
 await report();
-console.log(`\nApply it with:  launchctl kickstart -k gui/$(id -u)/com.neo-agent-deck`);
+
+// One request now beats discovering the problem later through a dashboard that just says
+// "unavailable". A setup-token is inference-only and will fail this check.
+const verdict = await verifyToken(token);
+console.log(verdict.message);
+if (!verdict.ok) process.exitCode = 1;
+else console.log(`\nApply it with:  launchctl kickstart -k gui/$(id -u)/com.neo-agent-deck`);
+
+async function verifyToken(value: string): Promise<{ ok: boolean; message: string }> {
+  process.stdout.write("\nChecking the token against the usage endpoint... ");
+  try {
+    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      headers: {
+        Authorization: `Bearer ${value}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "user-agent": "neo-agent-deck/0.3.1"
+      },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (response.ok) return { ok: true, message: "accepted." };
+
+    const body = await response.text();
+    const detail = (() => {
+      try {
+        return (JSON.parse(body) as { error?: { message?: string } }).error?.message || "";
+      } catch {
+        return "";
+      }
+    })();
+    const scope = missingScope(detail);
+    if (scope) {
+      return {
+        ok: false,
+        message: `rejected.\n\nThis token lacks the "${scope}" scope, so plan usage will stay unavailable.\n`
+          + "Tokens from `claude setup-token` are inference-only. To get usage:\n\n"
+          + "  1. Run `claude` in a terminal and sign in with /login (the CLI, not the desktop app)\n"
+          + "  2. Run `npm run token:claude -- --clear` so the deck reads the Keychain instead\n\n"
+          + "Everything else on the deck — session status, Codex usage — works without this.",
+      };
+    }
+    return { ok: false, message: `rejected: HTTP ${response.status}${detail ? ` — ${detail}` : ""}` };
+  } catch (error) {
+    // Not reachable is not the same as not valid; keep the token and say so.
+    return { ok: true, message: `could not check (${error instanceof Error ? error.message : String(error)}); token kept.` };
+  }
+}
 
 async function report(): Promise<void> {
   const backoff = readBackoff();

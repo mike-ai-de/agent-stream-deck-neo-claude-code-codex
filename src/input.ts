@@ -1,8 +1,9 @@
-import type { DeckConfig } from "./config.js";
+import { sessionSlot, type DeckConfig } from "./config.js";
 import type { Provider } from "./types.js";
 
 export type InputAction =
   | { type: "acknowledge-provider"; provider: Provider; forceUsage: false }
+  | { type: "focus-session"; slot: number; forceUsage: false }
   | { type: "cycle-info"; delta: -1 | 1; forceUsage: false }
   | { type: "show-agents"; forceUsage: true }
   | { type: "refresh"; forceUsage: boolean };
@@ -27,7 +28,10 @@ export function actionForControl(index: number, config: DeckConfig): InputAction
     case "info":
       return { type: "cycle-info", delta: 1, forceUsage: false };
     case "blank":
-    default:
       return { type: "refresh", forceUsage: false };
+    default: {
+      const slot = module ? sessionSlot(module) : null;
+      return slot === null ? { type: "refresh", forceUsage: false } : { type: "focus-session", slot, forceUsage: false };
+    }
   }
 }

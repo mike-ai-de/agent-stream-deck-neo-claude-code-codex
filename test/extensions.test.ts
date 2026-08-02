@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { usageErrorMessage } from "../src/collectors/claude.js";
+import { missingScope, usageErrorMessage } from "../src/collectors/claude.js";
 import { parseCodexCwd } from "../src/collectors/codex.js";
-import { DEFAULT_CONFIG, loadConfig, saveConfig, type DeckConfig } from "../src/config.js";
-import { pickPrimary } from "../src/dashboard.js";
+import { DEFAULT_CONFIG, loadConfig, saveConfig, sessionSlot, type DeckConfig } from "../src/config.js";
+import { pickPrimary, rankSessions } from "../src/dashboard.js";
+import { actionForControl } from "../src/input.js";
 import { AttentionNotifier } from "../src/lib/notify.js";
 import { clearBackoff, readBackoff, writeBackoff } from "../src/lib/usage-backoff.js";
 import { formatCountdown, projectLabel } from "../src/lib/util.js";
-import { renderProviderKey, renderUsageKey, usageLevelFor } from "../src/render.js";
+import { renderProviderKey, renderSessionKey, renderUsageKey, usageLevelFor } from "../src/render.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "../src/types.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -47,7 +48,8 @@ const snapshotWith = (claude: ProviderSnapshot): DashboardSnapshot => ({
   openCount: claude.openCount,
   workingCount: claude.workingCount,
   attentionCount: claude.attentionCount,
-  updatedAt: NOW
+  updatedAt: NOW,
+  ranked: rankSessions(claude.sessions)
 });
 
 describe("countdown formatting", () => {
@@ -241,6 +243,97 @@ describe("usage backoff messaging", () => {
 
   it("never advertises a wait shorter than a minute", () => {
     expect(usageErrorMessage(429, NOW + 1_000, NOW)).toContain("retrying in 1m");
+  });
+});
+
+describe("session ranking and keys", () => {
+  it("puts waiting sessions first, then working, then idle", () => {
+    const ranked = rankSessions([
+      session({ key: "c:idle", state: "idle", activityAt: NOW }),
+      session({ key: "c:work", state: "working", activityAt: NOW - 60_000 }),
+      session({ key: "c:wait", state: "attention", activityAt: NOW - 120_000 })
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(["c:wait", "c:work", "c:idle"]);
+  });
+
+  it("orders by recency within a state", () => {
+    const ranked = rankSessions([
+      session({ key: "old", state: "attention", activityAt: NOW - 10_000 }),
+      session({ key: "new", state: "attention", activityAt: NOW })
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(["new", "old"]);
+  });
+
+  it("breaks ties deterministically so a slot does not reshuffle under your finger", () => {
+    const build = () => [
+      session({ key: "b", state: "idle", activityAt: NOW }),
+      session({ key: "a", state: "idle", activityAt: NOW })
+    ];
+    expect(rankSessions(build()).map((s) => s.key)).toEqual(["a", "b"]);
+    expect(rankSessions(build().reverse()).map((s) => s.key)).toEqual(["a", "b"]);
+  });
+
+  it("drops finished sessions, since a slot exists to be tapped", () => {
+    const ranked = rankSessions([
+      session({ key: "closed", state: "idle", isOpen: false }),
+      session({ key: "open", state: "idle", isOpen: true })
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(["open"]);
+  });
+
+  it("keeps a session that still wants you even if it reads as closed", () => {
+    const ranked = rankSessions([session({ key: "waiting", state: "attention", isOpen: false })]);
+    expect(ranked.map((s) => s.key)).toEqual(["waiting"]);
+  });
+
+  it("does not mutate the array it is given", () => {
+    const input = [
+      session({ key: "b", state: "idle", activityAt: NOW - 1_000 }),
+      session({ key: "a", state: "attention", activityAt: NOW })
+    ];
+    rankSessions(input);
+    expect(input.map((s) => s.key)).toEqual(["b", "a"]);
+  });
+
+  it("maps session.N modules to zero-based slots and nothing else", () => {
+    expect(sessionSlot("session.1")).toBe(0);
+    expect(sessionSlot("session.4")).toBe(3);
+    expect(sessionSlot("claude.status")).toBeNull();
+    expect(sessionSlot("blank")).toBeNull();
+  });
+
+  it("routes a session key tap to a focus action for that slot", () => {
+    const config: DeckConfig = { ...DEFAULT_CONFIG, keys: ["session.1", "session.2", "blank", "summary", "info", "blank", "blank", "blank"] };
+    expect(actionForControl(0, config)).toEqual({ type: "focus-session", slot: 0, forceUsage: false });
+    expect(actionForControl(1, config)).toEqual({ type: "focus-session", slot: 1, forceUsage: false });
+    expect(actionForControl(2, config)).toEqual({ type: "refresh", forceUsage: false });
+  });
+
+  it("renders a filled slot differently from an empty one, both at native size", async () => {
+    const filled = await renderSessionKey(session({ state: "attention", label: "MediLog" }), 0);
+    const empty = await renderSessionKey(null, 0);
+    expect(filled.length).toBe(96 * 96 * 4);
+    expect(empty.length).toBe(96 * 96 * 4);
+    expect(filled.equals(empty)).toBe(false);
+  });
+
+  it("survives a session with no project label", async () => {
+    expect((await renderSessionKey(session({ state: "working" }), 1)).length).toBe(96 * 96 * 4);
+  });
+});
+
+describe("usage scope errors", () => {
+  it("extracts the scope name the API demands", () => {
+    expect(missingScope("OAuth token does not meet scope requirement user:profile")).toBe("user:profile");
+    expect(missingScope("Rate limited. Please try again later.")).toBeNull();
+    expect(missingScope("")).toBeNull();
+  });
+
+  it("explains the fix instead of promising a retry that cannot help", () => {
+    const message = usageErrorMessage(403, NOW + 60_000, NOW, "user:profile");
+    expect(message).toContain("user:profile");
+    expect(message).toContain("/login");
+    expect(message).not.toContain("retrying in");
   });
 });
 

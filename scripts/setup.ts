@@ -14,6 +14,7 @@ import {
 const KEY_MODULES: readonly KeyModule[] = [
   "claude.status", "codex.status", "opencode.status",
   "claude.usage", "codex.usage", "opencode.usage",
+  "session.1", "session.2", "session.3", "session.4",
   "summary", "info", "blank"
 ];
 
@@ -24,6 +25,10 @@ const KEY_MODULE_HELP: Record<KeyModule, string> = {
   "claude.usage": "Claude plan usage (tap forces a usage refresh)",
   "codex.usage": "Codex rate-limit usage (tap forces a usage refresh)",
   "opencode.usage": "OpenCode token usage (tap forces a usage refresh)",
+  "session.1": "Most urgent session: project name and state (tap raises its window)",
+  "session.2": "Second most urgent session (tap raises its window)",
+  "session.3": "Third most urgent session (tap raises its window)",
+  "session.4": "Fourth most urgent session (tap raises its window)",
   summary: "All-agents open/attention counters (tap jumps to the All page)",
   info: "InfoBar page indicator (tap cycles the InfoBar)",
   blank: "Dim empty tile (tap just refreshes)"

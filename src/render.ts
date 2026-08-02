@@ -1,7 +1,7 @@
 import sharp from "sharp";
-import { DEFAULT_CONFIG, type DeckConfig, type KeyModule } from "./config.js";
+import { DEFAULT_CONFIG, sessionSlot, type DeckConfig, type KeyModule } from "./config.js";
 import { formatCountdown } from "./lib/util.js";
-import type { DashboardSnapshot, Provider, ProviderSnapshot, UsageSnapshot, UsageWindow } from "./types.js";
+import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot, UsageWindow } from "./types.js";
 
 const KEY_SIZE = 96;
 const BAR_WIDTH = 248;
@@ -63,9 +63,31 @@ async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, p
     case "info":
       return renderInfoKey(page, config.infoBar.length);
     case "blank":
-    default:
       return renderBlankKey();
+    default: {
+      const slot = sessionSlot(module);
+      return slot === null ? renderBlankKey() : renderSessionKey(snapshot.ranked[slot] ?? null, slot);
+    }
   }
+}
+
+/**
+ * One concrete session: which project, what it is doing, and a tap that takes you there. This is
+ * what turns "1 open" into an answer you can act on when several agents are running at once.
+ */
+export async function renderSessionKey(session: SessionSnapshot | null, slot: number): Promise<Buffer> {
+  if (!session) {
+    return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="#14171f"/><text x="48" y="52" text-anchor="middle" fill="#39414f" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="13" font-weight="700">SLOT ${slot + 1}</text><text x="48" y="70" text-anchor="middle" fill="#2c333e" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8">no session</text></svg>`, KEY_SIZE, KEY_SIZE);
+  }
+
+  const brand = brands[session.provider];
+  const state = states[session.state];
+  const label = session.label || session.provider.toUpperCase();
+  // Long repo names need smaller type; the key is only 96px across.
+  const labelSize = label.length > 11 ? 10 : label.length > 8 ? 12 : 14;
+  const footer = session.state === "attention" ? "tap to open" : "tap to focus";
+
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${state.background}"/><circle cx="13" cy="13" r="4" fill="${state.accent}"/><text x="83" y="17" text-anchor="end" fill="${brand.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8" font-weight="800">${brand.name}</text><text x="48" y="47" text-anchor="middle" fill="#f3f6fa" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${labelSize}" font-weight="800">${escapeXml(label)}</text><text x="48" y="68" text-anchor="middle" fill="${state.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="900">${state.label}</text><text x="48" y="87" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
 
 export async function renderProviderKey(provider: ProviderSnapshot, config: DeckConfig = DEFAULT_CONFIG): Promise<Buffer> {

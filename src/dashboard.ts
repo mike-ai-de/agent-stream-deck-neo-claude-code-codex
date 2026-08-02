@@ -42,7 +42,8 @@ export class Dashboard {
       openCount: all.filter((session) => session.isOpen).length,
       workingCount: all.filter((session) => session.state === "working").length,
       attentionCount: all.filter((session) => session.state === "attention").length,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      ranked: rankSessions(all)
     };
     return this.snapshot;
   }
@@ -56,6 +57,32 @@ export class Dashboard {
     const sessions = this.current().providers[provider].sessions.filter((session) => session.state === "attention");
     this.state.acknowledgeMany(sessions);
   }
+
+  /** The session behind a `session.N` key, or null when fewer sessions are open than slots. */
+  sessionAt(slot: number): SessionSnapshot | null {
+    return this.current().ranked[slot] ?? null;
+  }
+
+  acknowledgeSession(session: SessionSnapshot): void {
+    if (session.state === "attention") this.state.acknowledgeMany([session]);
+  }
+}
+
+const STATE_ORDER: Record<SessionSnapshot["state"], number> = { attention: 0, working: 1, idle: 2 };
+
+/**
+ * Ranks sessions by urgency, then recency. Only open sessions qualify: a slot exists to be tapped,
+ * and there is nothing to raise for a session that has already ended. Slot assignment must be
+ * stable frame to frame — a key that reshuffles under your finger is worse than no key — so ties
+ * break on the session key, which does not change while a session lives.
+ */
+export function rankSessions(sessions: SessionSnapshot[]): SessionSnapshot[] {
+  return sessions
+    .filter((session) => session.isOpen || session.state !== "idle")
+    .sort((a, b) =>
+      STATE_ORDER[a.state] - STATE_ORDER[b.state]
+      || b.activityAt - a.activityAt
+      || a.key.localeCompare(b.key));
 }
 
 export function summarizeProvider(provider: Provider, result: CollectorResult): ProviderSnapshot {

@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { DEFAULT_CONFIG } from "../src/config.js";
-import { Dashboard, summarizeProvider } from "../src/dashboard.js";
+import { DEFAULT_CONFIG, loadConfig } from "../src/config.js";
+import { Dashboard, rankSessions, summarizeProvider } from "../src/dashboard.js";
 import { renderDeckBuffers } from "../src/render.js";
 import type { DashboardSnapshot, Provider, SessionSnapshot, UsageSnapshot } from "../src/types.js";
 
@@ -15,6 +15,9 @@ const outputArg = args.find((argument) => !argument.startsWith("--"));
 const defaultOutput = live ? path.join(os.tmpdir(), "neo-agent-deck-live.png") : "docs/neo-agent-deck-preview.png";
 const output = path.resolve(outputArg || defaultOutput);
 const snapshot = live ? await new Dashboard().collect(true) : sampleSnapshot();
+// A live preview should show the deck you actually have. The documentation images stay on the
+// default layout, since that is what a new reader is being shown.
+const previewConfig = live ? loadConfig() : DEFAULT_CONFIG;
 
 if (readme) {
   const images = path.resolve("docs/images");
@@ -28,7 +31,7 @@ if (readme) {
   console.log(statusOutput);
   console.log(infoBarOutput);
 } else {
-  await writeDeckPreview(snapshot, DEFAULT_CONFIG.infoBar.indexOf("all"), output);
+  await writeDeckPreview(snapshot, Math.max(0, previewConfig.infoBar.indexOf(previewConfig.restingPage)), output);
   console.log(output);
 }
 
@@ -188,7 +191,8 @@ async function writeDeckPreview(data: DashboardSnapshot, page: number, file: str
 }
 
 async function renderDevice(data: DashboardSnapshot, page: number, scale: number): Promise<Buffer> {
-  const buffers = await renderDeckBuffers(data, page, DEFAULT_CONFIG);
+  // previewConfig is DEFAULT_CONFIG outside --live, so the documentation renders are unaffected.
+  const buffers = await renderDeckBuffers(data, page, previewConfig);
   const keySize = 134;
   const gap = 22;
   const keys = await Promise.all(buffers.slice(0, 8).map((buffer) => rawKeyToPng(buffer, keySize / 96)));
@@ -251,7 +255,8 @@ function sampleSnapshot(): DashboardSnapshot {
     state,
     isOpen,
     activityAt: Date.now(),
-    completionAt: state === "attention" ? Date.now() : 0
+    completionAt: state === "attention" ? Date.now() : 0,
+    label: { claude: "MediLog", codex: "neo-agent-deck", opencode: "scratch" }[provider]
   });
   const claudeUsage: UsageSnapshot = { provider: "claude", windows: [{ label: "5h", percent: 12, resetsAt: null }, { label: "7d", percent: 34, resetsAt: null }], updatedAt: Date.now(), error: null };
   const codexUsage: UsageSnapshot = { provider: "codex", windows: [{ label: "5h", percent: 17, resetsAt: null }, { label: "1w", percent: 25, resetsAt: null }], updatedAt: Date.now(), error: null };
@@ -262,5 +267,5 @@ function sampleSnapshot(): DashboardSnapshot {
     opencode: summarizeProvider("opencode", { sessions: [session("opencode", "1", "idle", true)], usage: opencodeUsage })
   };
   const all = Object.values(providers).flatMap((provider) => provider.sessions);
-  return { providers, openCount: all.filter((item) => item.isOpen).length, workingCount: all.filter((item) => item.state === "working").length, attentionCount: all.filter((item) => item.state === "attention").length, updatedAt: Date.now() };
+  return { providers, openCount: all.filter((item) => item.isOpen).length, workingCount: all.filter((item) => item.state === "working").length, attentionCount: all.filter((item) => item.state === "attention").length, updatedAt: Date.now(), ranked: rankSessions(all) };
 }

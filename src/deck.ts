@@ -115,6 +115,17 @@ export class NeoAgentDeck {
           if (!result.focused) console.warn(`Could not raise the ${action.provider} session: ${result.detail}`);
         }
         this.dashboard.acknowledgeProvider(action.provider);
+      } else if (action.type === "focus-session") {
+        // A session key names one concrete session, so the tap goes straight there whatever its
+        // state — this is the "jump to my agent" control, not just an acknowledgement.
+        const session = this.dashboard.sessionAt(action.slot);
+        if (session) {
+          if (config.focusOnTap) {
+            const result = await focusSession(session);
+            if (!result.focused) console.warn(`Could not raise ${session.label || session.key}: ${result.detail}`);
+          }
+          this.dashboard.acknowledgeSession(session);
+        }
       } else if (action.type === "cycle-info") {
         this.dashboard.state.nextInfoPage(action.delta);
       } else if (action.type === "show-agents") {
