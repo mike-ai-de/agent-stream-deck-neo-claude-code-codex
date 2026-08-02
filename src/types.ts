@@ -54,6 +54,16 @@ export interface ProviderSnapshot {
   primary: SessionSnapshot | null;
 }
 
+export interface ProjectSnapshot {
+  /** Working directory, or the session key when a provider records none. */
+  id: string;
+  label: string;
+  sessions: number;
+  attention: number;
+  working: number;
+  activityAt: number;
+}
+
 export interface DashboardSnapshot {
   providers: Record<Provider, ProviderSnapshot>;
   openCount: number;
@@ -65,6 +75,8 @@ export interface DashboardSnapshot {
    * working, then idle, most recent first within each group. Feeds the `session.N` keys.
    */
   ranked: SessionSnapshot[];
+  /** Distinct projects behind the live sessions, most recently active first. */
+  projects: ProjectSnapshot[];
 }
 
 export interface PersistedState {

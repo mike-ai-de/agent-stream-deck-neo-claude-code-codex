@@ -140,6 +140,7 @@ service. Missing keys fall back to the defaults below, so an older config file k
 | `focusOnTap` | `true` | Tapping a key that needs attention raises the owning window, then acknowledges. |
 | `notifyOnAttention` | `true` | Post a desktop notification when a session starts waiting. |
 | `attentionSound` | `"Submarine"` | A name from `/System/Library/Sounds`, or `null` for silence. |
+| `codexUsageUrl` | Codex analytics page | Page the Codex usage key opens on tap. Must be `https`; `null` restores the plain refresh. |
 
 A usage key speaks for whichever window is closest to its limit, not the longest one: a 5-hour quota
 at 99% must not hide behind a weekly quota at 30%. The countdown shows the soonest reset, which is
@@ -153,6 +154,28 @@ colour, so it is never mistaken for a live measurement.
 `focusOnTap` raises Terminal.app and iTerm tabs by matching the session's tty, and falls back to
 activating the application for other emulators. macOS asks for Automation permission the first
 time; until it is granted the tap still acknowledges and the reason is written to the log.
+
+### Every key does something
+
+A key that only reports is half a key. The current call to action per module:
+
+| Module | Tap |
+| --- | --- |
+| `claude.status`, `codex.status` | Raise that agent's window, and mark anything waiting as seen |
+| `codex.usage` | Open `codexUsageUrl` in the browser (`https` only, validated twice) |
+| `claude.usage`, `opencode.usage` | Force a usage refresh |
+| `session.1` … `session.4` | Raise that one session's window and acknowledge it |
+| `projects` | Acknowledge every waiting session at once |
+| `summary` | Jump the InfoBar to the All Agents page |
+| `info` | Advance the InfoBar one page |
+
+`projects` counts distinct working directories, not sessions: two agents in one repository are one
+piece of work. It turns amber when any project has something waiting, and shows the project's name
+instead of the digit `1` when there is only one.
+
+The `sessions` InfoBar page names the live sessions rather than counting them. At 248px it fits
+three, each with its state colour and the agent it belongs to, and reports `+N more` beyond that —
+it is the only surface wide enough for real names instead of abbreviations.
 
 ### Session keys
 

@@ -15,7 +15,7 @@ const KEY_MODULES: readonly KeyModule[] = [
   "claude.status", "codex.status", "opencode.status",
   "claude.usage", "codex.usage", "opencode.usage",
   "session.1", "session.2", "session.3", "session.4",
-  "summary", "info", "blank"
+  "projects", "summary", "info", "blank"
 ];
 
 const KEY_MODULE_HELP: Record<KeyModule, string> = {
@@ -29,18 +29,20 @@ const KEY_MODULE_HELP: Record<KeyModule, string> = {
   "session.2": "Second most urgent session (tap raises its window)",
   "session.3": "Third most urgent session (tap raises its window)",
   "session.4": "Fourth most urgent session (tap raises its window)",
+  projects: "How many projects have live sessions (tap acknowledges every waiting one)",
   summary: "All-agents open/attention counters (tap jumps to the All page)",
   info: "InfoBar page indicator (tap cycles the InfoBar)",
   blank: "Dim empty tile (tap just refreshes)"
 };
 
-const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all"];
+const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all", "sessions"];
 
 const INFO_MODULE_HELP: Record<InfoModule, string> = {
   claude: "Claude 5-hour and weekly plan usage",
   codex: "Codex rate-limit usage",
   opencode: "OpenCode 24-hour and 7-day token usage",
-  all: "Total open / working / attention sessions"
+  all: "Total open / working / attention sessions",
+  sessions: "Names the live sessions across all agents"
 };
 
 const args = process.argv.slice(2);

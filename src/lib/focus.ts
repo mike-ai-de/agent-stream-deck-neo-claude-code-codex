@@ -58,6 +58,34 @@ export function isFocusable(session: SessionSnapshot | null | undefined, platfor
   return Number.isInteger(session.pid) && Number(session.pid) > 0;
 }
 
+/**
+ * Opens a web page in the default browser. The URL is re-validated here rather than trusted from
+ * the caller: `open` will act on `file:` and on whatever custom schemes other applications have
+ * registered, so a config file must not be a way to launch arbitrary things.
+ */
+export async function openUrl(url: string, dependencies: FocusDependencies = {}): Promise<FocusResult> {
+  const platform = dependencies.platform ?? process.platform;
+  const execute = dependencies.execute ?? execFileAsync;
+  if (platform !== "darwin") return { focused: false, detail: "opening links is implemented for macOS only" };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { focused: false, detail: "not a valid URL" };
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname) {
+    return { focused: false, detail: `refused to open a ${parsed.protocol} link; only https is allowed` };
+  }
+
+  try {
+    await execute("/usr/bin/open", [parsed.toString()], { timeout: 5_000 });
+    return { focused: true, detail: `opened ${parsed.hostname}` };
+  } catch (error) {
+    return { focused: false, detail: `could not open the link: ${(error instanceof Error ? error.message : String(error)).split("\n")[0]}` };
+  }
+}
+
 export async function focusSession(session: SessionSnapshot | null | undefined, dependencies: FocusDependencies = {}): Promise<FocusResult> {
   const platform = dependencies.platform ?? process.platform;
   const execute = dependencies.execute ?? execFileAsync;

@@ -4,6 +4,8 @@ import type { Provider } from "./types.js";
 export type InputAction =
   | { type: "acknowledge-provider"; provider: Provider; forceUsage: false }
   | { type: "focus-session"; slot: number; forceUsage: false }
+  | { type: "acknowledge-all"; forceUsage: false }
+  | { type: "open-url"; url: string; forceUsage: false }
   | { type: "cycle-info"; delta: -1 | 1; forceUsage: false }
   | { type: "show-agents"; forceUsage: true }
   | { type: "refresh"; forceUsage: boolean };
@@ -19,10 +21,17 @@ export function actionForControl(index: number, config: DeckConfig): InputAction
       return { type: "acknowledge-provider", provider: "codex", forceUsage: false };
     case "opencode.status":
       return { type: "acknowledge-provider", provider: "opencode", forceUsage: false };
-    case "claude.usage":
     case "codex.usage":
+      // Codex usage is read from local files, so a forced refresh buys nothing the 3s poll does
+      // not already do. The tap is worth more as a jump to the page behind the number.
+      return config.codexUsageUrl
+        ? { type: "open-url", url: config.codexUsageUrl, forceUsage: false }
+        : { type: "refresh", forceUsage: true };
+    case "claude.usage":
     case "opencode.usage":
       return { type: "refresh", forceUsage: true };
+    case "projects":
+      return { type: "acknowledge-all", forceUsage: false };
     case "summary":
       return { type: "show-agents", forceUsage: true };
     case "info":

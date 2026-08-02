@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.js";
-import { Dashboard, rankSessions, summarizeProvider } from "../src/dashboard.js";
+import { Dashboard, groupProjects, rankSessions, summarizeProvider } from "../src/dashboard.js";
 import { renderDeckBuffers } from "../src/render.js";
 import type { DashboardSnapshot, Provider, SessionSnapshot, UsageSnapshot } from "../src/types.js";
 
@@ -267,5 +267,5 @@ function sampleSnapshot(): DashboardSnapshot {
     opencode: summarizeProvider("opencode", { sessions: [session("opencode", "1", "idle", true)], usage: opencodeUsage })
   };
   const all = Object.values(providers).flatMap((provider) => provider.sessions);
-  return { providers, openCount: all.filter((item) => item.isOpen).length, workingCount: all.filter((item) => item.state === "working").length, attentionCount: all.filter((item) => item.state === "attention").length, updatedAt: Date.now(), ranked: rankSessions(all) };
+  return { providers, openCount: all.filter((item) => item.isOpen).length, workingCount: all.filter((item) => item.state === "working").length, attentionCount: all.filter((item) => item.state === "attention").length, updatedAt: Date.now(), ranked: rankSessions(all), projects: groupProjects(rankSessions(all)) };
 }

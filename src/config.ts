@@ -6,7 +6,7 @@ export type KeyModule =
   | "claude.status" | "codex.status" | "opencode.status"
   | "claude.usage" | "codex.usage" | "opencode.usage"
   | "session.1" | "session.2" | "session.3" | "session.4"
-  | "summary" | "info" | "blank";
+  | "projects" | "summary" | "info" | "blank";
 
 /** Slot number for a `session.N` module, or null for every other module. */
 export function sessionSlot(module: KeyModule): number | null {
@@ -14,7 +14,7 @@ export function sessionSlot(module: KeyModule): number | null {
   return match ? Number(match[1]) - 1 : null;
 }
 
-export type InfoModule = "claude" | "codex" | "opencode" | "all";
+export type InfoModule = "claude" | "codex" | "opencode" | "all" | "sessions";
 
 export interface DeckConfig {
   brightness: number;
@@ -33,6 +33,8 @@ export interface DeckConfig {
   notifyOnAttention: boolean;
   /** Name of a macOS system sound to play with the notification; null stays silent. */
   attentionSound: string | null;
+  /** Page the Codex usage key opens on tap. Must be https; null disables the action. */
+  codexUsageUrl: string | null;
 }
 
 export const DEFAULT_CONFIG: DeckConfig = {
@@ -48,17 +50,18 @@ export const DEFAULT_CONFIG: DeckConfig = {
   showProjectLabels: true,
   focusOnTap: true,
   notifyOnAttention: true,
-  attentionSound: "Submarine"
+  attentionSound: "Submarine",
+  codexUsageUrl: "https://chatgpt.com/codex/cloud/settings/analytics"
 };
 
 const KEY_MODULES: readonly KeyModule[] = [
   "claude.status", "codex.status", "opencode.status",
   "claude.usage", "codex.usage", "opencode.usage",
   "session.1", "session.2", "session.3", "session.4",
-  "summary", "info", "blank"
+  "projects", "summary", "info", "blank"
 ];
 
-const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all"];
+const INFO_MODULES: readonly InfoModule[] = ["claude", "codex", "opencode", "all", "sessions"];
 
 export function configDir(): string {
   return process.env.NEO_AGENT_DECK_HOME || path.join(os.homedir(), ".neo-agent-deck");
@@ -108,7 +111,8 @@ export function loadConfig(dir = configDir()): DeckConfig {
     showProjectLabels: booleanOr(parsed.showProjectLabels, DEFAULT_CONFIG.showProjectLabels),
     focusOnTap: booleanOr(parsed.focusOnTap, DEFAULT_CONFIG.focusOnTap),
     notifyOnAttention: booleanOr(parsed.notifyOnAttention, DEFAULT_CONFIG.notifyOnAttention),
-    attentionSound: soundOr(parsed.attentionSound, DEFAULT_CONFIG.attentionSound)
+    attentionSound: soundOr(parsed.attentionSound, DEFAULT_CONFIG.attentionSound),
+    codexUsageUrl: httpsUrlOr(parsed.codexUsageUrl, DEFAULT_CONFIG.codexUsageUrl)
   };
 }
 
@@ -118,6 +122,24 @@ function percentOr(value: unknown, fallback: number): number {
 
 function booleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+/**
+ * Only absolute https URLs are accepted. The value is handed to `open`, which would otherwise
+ * happily act on `file:` or a custom scheme registered by some other application — a config file
+ * is not a place from which arbitrary things should be launchable.
+ */
+function httpsUrlOr(value: unknown, fallback: string | null): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" && url.hostname ? url.toString() : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // Restricted to a plain name because the value is passed to afplay as a path segment.

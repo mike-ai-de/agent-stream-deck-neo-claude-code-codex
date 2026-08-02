@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { backoffWaitMs, missingScope, usageErrorMessage } from "../src/collectors/claude.js";
 import { parseCodexCwd, parseCodexMeta, parseCodexProcessCwds, parseCodexProcessList } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, sessionSlot, type DeckConfig } from "../src/config.js";
-import { pickPrimary, rankSessions, stabilizeSessionSlots } from "../src/dashboard.js";
+import { groupProjects, pickPrimary, rankSessions, stabilizeSessionSlots } from "../src/dashboard.js";
 import { actionForControl } from "../src/input.js";
 import { isWellFormedToken, redactTokens } from "../src/lib/claude-auth.js";
 import { isFocusable } from "../src/lib/focus.js";
@@ -51,7 +51,8 @@ const snapshotWith = (claude: ProviderSnapshot): DashboardSnapshot => ({
   workingCount: claude.workingCount,
   attentionCount: claude.attentionCount,
   updatedAt: NOW,
-  ranked: rankSessions(claude.sessions)
+  ranked: rankSessions(claude.sessions),
+  projects: groupProjects(claude.sessions)
 });
 
 describe("countdown formatting", () => {

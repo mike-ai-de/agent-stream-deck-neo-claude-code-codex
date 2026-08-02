@@ -74,9 +74,11 @@ async function renderKeyModule(snapshot: DashboardSnapshot, module: KeyModule, p
     case "claude.usage":
       return renderUsageKey(snapshot.providers.claude.usage, config);
     case "codex.usage":
-      return renderUsageKey(snapshot.providers.codex.usage, config);
+      return renderUsageKey(snapshot.providers.codex.usage, config, Boolean(config.codexUsageUrl));
     case "opencode.usage":
       return renderUsageKey(snapshot.providers.opencode.usage, config);
+    case "projects":
+      return renderProjectsKey(snapshot);
     case "summary":
       return renderSummaryKey(snapshot);
     case "info":
@@ -117,9 +119,9 @@ export async function renderProviderKey(provider: ProviderSnapshot, config: Deck
   const detail = providerDetail(provider, config);
   // Only promise to open a window when there is one to open.
   const canFocus = config.focusOnTap && isFocusable(provider.primary);
-  const footer = provider.state === "attention"
-    ? (canFocus ? "tap to open" : "tap to acknowledge")
-    : "live backend";
+  const footer = canFocus
+    ? `tap to open ${brand.name.toLowerCase()}`
+    : provider.state === "attention" ? "tap to acknowledge" : "live backend";
   return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${state.background}"/><circle cx="13" cy="13" r="4" fill="${state.accent}"/><text x="48" y="24" text-anchor="middle" fill="#f3f6fa" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="54" text-anchor="middle" fill="${state.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="14" font-weight="900">${state.label}</text><text x="48" y="76" text-anchor="middle" fill="#c6d0dc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600">${escapeXml(detail)}</text><text x="48" y="89" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
 
@@ -142,7 +144,7 @@ function providerDetail(provider: ProviderSnapshot, config: DeckConfig): string 
   return relevantCount > 1 ? `${label} +${relevantCount - 1}` : label;
 }
 
-export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = DEFAULT_CONFIG): Promise<Buffer> {
+export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = DEFAULT_CONFIG, opensLink = false): Promise<Buffer> {
   const brand = brands[usage.provider];
   const primary = leadingWindow(usage.windows);
   const isQuota = typeof primary?.percent === "number";
@@ -171,8 +173,29 @@ export async function renderUsageKey(usage: UsageSnapshot, config: DeckConfig = 
       : usage.provider === "opencode" ? `${formatCurrency(usage.costUsd || 0)} / 7d` : subtitle;
   // The countdown line is longer than the plain label, so it gets a smaller type size.
   const footerSize = footer.length > 13 ? 8 : 9;
+  // A key that opens a web page should say so; the countdown moves up to the subtitle slot.
+  const hint = opensLink ? "tap for details ↗" : null;
 
-  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${theme.background}"/><circle cx="14" cy="14" r="4" fill="${theme.accent}"/><text x="48" y="25" text-anchor="middle" fill="#f7fafc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="59" text-anchor="middle" fill="${theme.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="24" font-weight="800">${escapeXml(headline)}</text><rect x="13" y="69" width="70" height="6" rx="3" fill="#ffffff24"/><rect x="13" y="69" width="${Math.max(0, Math.min(70, width))}" height="6" rx="3" fill="${theme.accent}"/><text x="48" y="88" text-anchor="middle" fill="#bdc8d6" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${footerSize}">${escapeXml(footer)}</text></svg>`, KEY_SIZE, KEY_SIZE);
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${theme.background}"/><circle cx="14" cy="14" r="4" fill="${theme.accent}"/><text x="48" y="25" text-anchor="middle" fill="#f7fafc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="11" font-weight="800">${brand.name}</text><text x="48" y="59" text-anchor="middle" fill="${theme.accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="24" font-weight="800">${escapeXml(headline)}</text><rect x="13" y="69" width="70" height="6" rx="3" fill="#ffffff24"/><rect x="13" y="69" width="${Math.max(0, Math.min(70, width))}" height="6" rx="3" fill="${theme.accent}"/><text x="48" y="${hint ? 84 : 88}" text-anchor="middle" fill="#bdc8d6" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${footerSize}">${escapeXml(footer)}</text>${hint ? `<text x="48" y="93" text-anchor="middle" fill="#7a8798" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${hint}</text>` : ""}</svg>`, KEY_SIZE, KEY_SIZE);
+}
+
+/**
+ * How many separate pieces of work are live, and how many of them want something. Two agents in
+ * one repository count once — the number answers "how many things am I juggling?", which a session
+ * count does not. The tap clears every outstanding notice at once.
+ */
+export async function renderProjectsKey(snapshot: DashboardSnapshot): Promise<Buffer> {
+  const projects = snapshot.projects;
+  const waiting = projects.filter((project) => project.attention > 0).length;
+  const background = waiting > 0 ? "#3c2710" : "#1b2430";
+  const accent = waiting > 0 ? "#ffb020" : "#7fd1ff";
+  // With a single project its name is more useful than the digit "1".
+  const headline = projects.length === 1 ? projects[0].label : String(projects.length);
+  const headlineSize = projects.length === 1 ? (headline.length > 10 ? 11 : 14) : 26;
+  const detail = waiting > 0 ? `${waiting} need you` : projects.length === 1 ? "1 project" : "all quiet";
+  const footer = waiting > 0 ? "tap to clear all" : "projects";
+
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="15" fill="${background}"/><circle cx="13" cy="13" r="4" fill="${accent}"/><text x="48" y="26" text-anchor="middle" fill="#cfd9e6" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" font-weight="800">PROJECTS</text><text x="48" y="${projects.length === 1 ? 58 : 62}" text-anchor="middle" fill="${accent}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="${headlineSize}" font-weight="900">${escapeXml(headline)}</text><text x="48" y="76" text-anchor="middle" fill="#c6d0dc" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600">${escapeXml(detail)}</text><text x="48" y="89" text-anchor="middle" fill="#718095" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7">${footer}</text></svg>`, KEY_SIZE, KEY_SIZE);
 }
 
 export async function renderSummaryKey(snapshot: DashboardSnapshot): Promise<Buffer> {
@@ -192,7 +215,39 @@ export async function renderBlankKey(): Promise<Buffer> {
 export async function renderInfoBar(snapshot: DashboardSnapshot, page: number, config: DeckConfig): Promise<Buffer> {
   const module = config.infoBar[page] ?? config.restingPage;
   if (module === "claude" || module === "codex" || module === "opencode") return usageBar(snapshot.providers[module].usage);
+  if (module === "sessions") return sessionListBar(snapshot);
   return sessionsBar(snapshot);
+}
+
+/**
+ * The only surface wide enough for real names. A key can show one project in abbreviated type;
+ * 248px shows three, with the state colour carrying the urgency so the eye finds the amber one.
+ */
+async function sessionListBar(snapshot: DashboardSnapshot): Promise<Buffer> {
+  const shown = snapshot.ranked.slice(0, 3);
+  const overflow = snapshot.ranked.length - shown.length;
+
+  if (!shown.length) {
+    return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">SESSIONS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">Claude · Codex · OpenCode</text><text x="13" y="44" fill="#6c7a90" font-family="-apple-system,sans-serif" font-size="13">no live sessions</text></svg>`, BAR_WIDTH, BAR_HEIGHT);
+  }
+
+  const columnWidth = 248 / shown.length;
+  const entries = shown.map((session, index) => {
+    const x = Math.round(index * columnWidth) + 13;
+    const state = states[session.state];
+    const brand = brands[session.provider];
+    const name = truncate(session.label || brand.name, shown.length >= 3 ? 11 : 16);
+    return `<circle cx="${x + 4}" cy="34" r="4" fill="${state.accent}"/>`
+      + `<text x="${x + 14}" y="38" fill="#e7edf6" font-family="-apple-system,sans-serif" font-size="12" font-weight="800">${escapeXml(name)}</text>`
+      + `<text x="${x + 14}" y="50" fill="${brand.accent}" font-family="-apple-system,sans-serif" font-size="7" font-weight="700">${brand.name}</text>`;
+  }).join("");
+
+  const caption = overflow > 0 ? `+${overflow} more` : "Claude · Codex · OpenCode";
+  return svgToRgba(`<svg xmlns="http://www.w3.org/2000/svg" width="248" height="58"><rect width="248" height="58" rx="9" fill="#171b2d"/><text x="13" y="19" fill="#e8ecff" font-family="-apple-system,sans-serif" font-size="13" font-weight="900">SESSIONS</text><text x="235" y="18" text-anchor="end" fill="#8e9bb0" font-family="-apple-system,sans-serif" font-size="7">${escapeXml(caption)}</text>${entries}</svg>`, BAR_WIDTH, BAR_HEIGHT);
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
 async function usageBar(usage: UsageSnapshot): Promise<Buffer> {

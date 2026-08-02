@@ -3,7 +3,7 @@ import { CodexCollector } from "./collectors/codex.js";
 import { OpenCodeCollector } from "./collectors/opencode.js";
 import { configDir, loadConfig, type DeckConfig } from "./config.js";
 import { StateStore } from "./state.js";
-import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "./types.js";
+import type { DashboardSnapshot, ProjectSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "./types.js";
 
 interface CollectorResult {
   sessions: SessionSnapshot[];
@@ -46,7 +46,8 @@ export class Dashboard {
       workingCount: all.filter((session) => session.state === "working").length,
       attentionCount: all.filter((session) => session.state === "attention").length,
       updatedAt: Date.now(),
-      ranked
+      ranked,
+      projects: groupProjects(ranked)
     };
     return this.snapshot;
   }
@@ -68,6 +69,15 @@ export class Dashboard {
 
   acknowledgeSession(session: SessionSnapshot): void {
     if (session.state === "attention") this.state.acknowledgeMany([session]);
+  }
+
+  /** Clears every outstanding notice at once, across providers and projects. */
+  acknowledgeAll(): number {
+    const waiting = Object.values(this.current().providers)
+      .flatMap((provider) => provider.sessions)
+      .filter((session) => session.state === "attention");
+    this.state.acknowledgeMany(waiting);
+    return waiting.length;
   }
 }
 
@@ -132,6 +142,35 @@ function sessionSlotCount(config: DeckConfig): number {
     const match = module.match(/^session\.(\d+)$/);
     return match ? Math.max(count, Number(match[1])) : count;
   }, 0);
+}
+
+/**
+ * Collapses sessions onto the projects they belong to. Two agents in the same repository are one
+ * piece of work, not two — which is the number that answers "how many things am I juggling?".
+ * Sessions without a working directory stand alone rather than being merged into one anonymous
+ * bucket, since they are genuinely separate pieces of work.
+ */
+export function groupProjects(sessions: readonly SessionSnapshot[]): ProjectSnapshot[] {
+  const byProject = new Map<string, ProjectSnapshot>();
+  for (const session of sessions) {
+    const id = session.cwd || session.key;
+    const existing = byProject.get(id);
+    const entry = existing ?? {
+      id,
+      label: session.label || session.provider.toUpperCase(),
+      sessions: 0,
+      attention: 0,
+      working: 0,
+      activityAt: 0
+    };
+    entry.sessions += 1;
+    if (session.state === "attention") entry.attention += 1;
+    if (session.state === "working") entry.working += 1;
+    entry.activityAt = Math.max(entry.activityAt, session.activityAt);
+    if (!existing) byProject.set(id, entry);
+  }
+  return [...byProject.values()].sort((a, b) =>
+    b.attention - a.attention || b.working - a.working || b.activityAt - a.activityAt || a.id.localeCompare(b.id));
 }
 
 export function summarizeProvider(provider: Provider, result: CollectorResult): ProviderSnapshot {

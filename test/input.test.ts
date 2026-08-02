@@ -12,7 +12,13 @@ describe("Neo controls", () => {
 
   it("maps default row two to three usage keys and Info", () => {
     expect(actionForControl(4, DEFAULT_CONFIG)).toEqual({ type: "refresh", forceUsage: true });
-    expect(actionForControl(5, DEFAULT_CONFIG)).toEqual({ type: "refresh", forceUsage: true });
+    // Codex usage comes from local files, so its tap opens the page behind the number instead of
+    // forcing a refresh the 3s poll already performs.
+    expect(actionForControl(5, DEFAULT_CONFIG)).toEqual({
+      type: "open-url",
+      url: DEFAULT_CONFIG.codexUsageUrl,
+      forceUsage: false
+    });
     expect(actionForControl(6, DEFAULT_CONFIG)).toEqual({ type: "refresh", forceUsage: true });
     expect(actionForControl(7, DEFAULT_CONFIG)).toEqual({ type: "cycle-info", delta: 1, forceUsage: false });
   });

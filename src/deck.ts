@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { DeviceModelId, listStreamDecks, openStreamDeck, type StreamDeck } from "@elgato-stream-deck/node";
 import { Dashboard } from "./dashboard.js";
 import { actionForControl } from "./input.js";
-import { focusSession } from "./lib/focus.js";
+import { focusSession, openUrl } from "./lib/focus.js";
 import { AttentionNotifier } from "./lib/notify.js";
 import { renderDeckBuffers } from "./render.js";
 import type { SessionSnapshot } from "./types.js";
@@ -108,10 +108,10 @@ export class NeoAgentDeck {
       const config = this.dashboard.config;
       const action = actionForControl(key, config);
       if (action.type === "acknowledge-provider") {
-        // Acknowledging says "I have seen it"; raising the window is how you act on it. Doing both
-        // on one tap keeps the deck a control surface rather than a read-only display.
+        // The tap means "take me to this agent", whatever it is doing — a provider key is a door,
+        // not only an acknowledgement. Anything waiting is marked seen on the way through.
         const view = this.dashboard.current().providers[action.provider];
-        if (config.focusOnTap && view.state === "attention") this.raise(view.primary, action.provider);
+        if (config.focusOnTap) this.raise(view.primary, action.provider);
         this.dashboard.acknowledgeProvider(action.provider);
       } else if (action.type === "focus-session") {
         // A session key names one concrete session, so the tap goes straight there whatever its
@@ -121,6 +121,20 @@ export class NeoAgentDeck {
           if (config.focusOnTap) this.raise(session, session.label || session.key);
           this.dashboard.acknowledgeSession(session);
         }
+      } else if (action.type === "acknowledge-all") {
+        const cleared = this.dashboard.acknowledgeAll();
+        if (cleared) console.log(`Acknowledged ${cleared} waiting session(s).`);
+      } else if (action.type === "open-url") {
+        // Not awaited, for the same reason focus is not: launching a browser can take seconds and
+        // the key press should redraw immediately.
+        const url = action.url;
+        void openUrl(url)
+          .then((result) => {
+            if (!result.focused) console.warn(`Could not open the usage page: ${result.detail}`);
+          })
+          .catch((error) => {
+            console.warn(`Could not open the usage page: ${error instanceof Error ? error.message : String(error)}`);
+          });
       } else if (action.type === "cycle-info") {
         this.dashboard.state.nextInfoPage(action.delta);
       } else if (action.type === "show-agents") {
