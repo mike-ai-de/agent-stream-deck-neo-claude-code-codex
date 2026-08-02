@@ -5,6 +5,7 @@ import { actionForControl } from "./input.js";
 import { focusSession } from "./lib/focus.js";
 import { AttentionNotifier } from "./lib/notify.js";
 import { renderDeckBuffers } from "./render.js";
+import type { SessionSnapshot } from "./types.js";
 
 const POLL_INTERVAL_MS = 3_000;
 const DEVICE_SCAN_INTERVAL_MS = 5_000;
@@ -110,20 +111,14 @@ export class NeoAgentDeck {
         // Acknowledging says "I have seen it"; raising the window is how you act on it. Doing both
         // on one tap keeps the deck a control surface rather than a read-only display.
         const view = this.dashboard.current().providers[action.provider];
-        if (config.focusOnTap && view.state === "attention") {
-          const result = await focusSession(view.primary);
-          if (!result.focused) console.warn(`Could not raise the ${action.provider} session: ${result.detail}`);
-        }
+        if (config.focusOnTap && view.state === "attention") this.raise(view.primary, action.provider);
         this.dashboard.acknowledgeProvider(action.provider);
       } else if (action.type === "focus-session") {
         // A session key names one concrete session, so the tap goes straight there whatever its
         // state — this is the "jump to my agent" control, not just an acknowledgement.
         const session = this.dashboard.sessionAt(action.slot);
         if (session) {
-          if (config.focusOnTap) {
-            const result = await focusSession(session);
-            if (!result.focused) console.warn(`Could not raise ${session.label || session.key}: ${result.detail}`);
-          }
+          if (config.focusOnTap) this.raise(session, session.label || session.key);
           this.dashboard.acknowledgeSession(session);
         }
       } else if (action.type === "cycle-info") {
@@ -136,6 +131,22 @@ export class NeoAgentDeck {
     } catch (error) {
       console.error("Button action failed:", error);
     }
+  }
+
+  /**
+   * Raises a session's window without blocking the key press. The first AppleScript against a
+   * given application makes macOS raise a consent dialog, and osascript sits there until someone
+   * answers it — awaiting that would freeze the deck for the whole timeout on the very tap that
+   * is supposed to feel instant.
+   */
+  private raise(session: SessionSnapshot | null, describe: string): void {
+    void focusSession(session)
+      .then((result) => {
+        if (!result.focused) console.warn(`Could not raise ${describe}: ${result.detail}`);
+      })
+      .catch((error) => {
+        console.warn(`Could not raise ${describe}: ${error instanceof Error ? error.message : String(error)}`);
+      });
   }
 
   private async refresh(forceUsage: boolean): Promise<void> {

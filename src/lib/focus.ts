@@ -146,19 +146,35 @@ async function activateITermSession(tty: string): Promise<FocusResult> {
   return runAppleScript(script, `raised iTerm for ${tty}`);
 }
 
+const OSASCRIPT_TIMEOUT_MS = 5_000;
+
 async function runAppleScript(script: string, detail: string): Promise<FocusResult> {
   try {
-    await execFileAsync("/usr/bin/osascript", ["-e", script], { timeout: 5_000 });
+    await execFileAsync("/usr/bin/osascript", ["-e", script], { timeout: OSASCRIPT_TIMEOUT_MS });
     return { focused: true, detail };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    // -1743 is macOS refusing automation until the user grants it in Privacy & Security.
+    // -1743 is macOS refusing automation outright.
     if (message.includes("-1743") || message.toLowerCase().includes("not authorized")) {
       return {
         focused: false,
-        detail: "macOS has not granted automation permission; allow it under Privacy & Security > Automation"
+        detail: "macOS denied automation; allow this app under System Settings > Privacy & Security > Automation"
+      };
+    }
+    // The first attempt against a given app raises a consent dialog and osascript blocks on it
+    // until someone answers, so a timeout here is far more likely to be a waiting prompt than a
+    // hung Terminal. Say so, because "timed out" sends people looking in the wrong place.
+    if (isTimeout(error, message)) {
+      return {
+        focused: false,
+        detail: "timed out — macOS is probably showing the one-time Automation consent dialog; approve it and tap again"
       };
     }
     return { focused: false, detail: `focus failed: ${message.split("\n")[0]}` };
   }
+}
+
+function isTimeout(error: unknown, message: string): boolean {
+  const killed = (error as { killed?: boolean; signal?: string });
+  return killed?.killed === true || killed?.signal === "SIGTERM" || /timed? ?out/i.test(message);
 }

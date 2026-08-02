@@ -149,6 +149,50 @@ colour, so it is never mistaken for a live measurement.
 activating the application for other emulators. macOS asks for Automation permission the first
 time; until it is granted the tap still acknowledges and the reason is written to the log.
 
+### Session keys
+
+`session.1` through `session.4` each stand for one concrete session rather than a provider total.
+The list is ranked waiting first, then working, then idle, and by recency within each group; only
+open sessions qualify, since a slot exists to be tapped and a finished session has no window left
+to raise. Ties break on the session id, so a slot never reshuffles under your finger.
+
+Each key shows the project directory name and the session state, and a tap raises that session's
+window and acknowledges it. With several agents running in different repos, this answers "which one
+needs me, and take me there" in one press.
+
+These are useful in place of modules for a provider you do not run. The layout here, for a machine
+with Claude Code and Codex but no OpenCode:
+
+```json
+"keys": ["claude.status", "codex.status", "session.1", "summary",
+         "claude.usage",  "codex.usage",  "session.2", "info"],
+"infoBar": ["claude", "codex", "all"]
+```
+
+The first tap that raises a window makes macOS show its one-time Automation consent dialog, and
+`osascript` waits on that dialog rather than failing. The deck does not block on it — the
+acknowledgement and the redraw happen immediately, and the outcome is written to the log. Approve
+the dialog once and subsequent taps are instant.
+
+### Claude usage needs a token with the `user:profile` scope
+
+`claude setup-token` produces an inference-only token. The usage endpoint rejects it:
+
+```
+403 OAuth token does not meet scope requirement user:profile
+```
+
+A token with that scope comes from an interactive sign-in. Run `claude` in a terminal, sign in with
+`/login`, then `npm run token:claude -- --clear` so the deck reads the Keychain rather than the
+stored file. `npm run token:claude` checks a token against the endpoint while storing it, so this
+shows up immediately rather than as a dashboard that quietly says "unavailable".
+
+A missing scope is a property of the token and cannot resolve by waiting, so the collector parks
+for four hours instead of retrying on the usual ladder, and storing a new token clears the wait.
+
+Everything else works without this: session status, project labels, Codex usage and its reset
+countdown are all read locally.
+
 ### Claude usage when the Keychain entry is empty
 
 A Claude Code install can hold a `Claude Code-credentials` Keychain entry whose `accessToken` is an
