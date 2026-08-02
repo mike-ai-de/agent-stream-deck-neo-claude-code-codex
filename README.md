@@ -124,7 +124,48 @@ npm run setup -- --default  # restore the default layout
 npm run status              # sanitized live backend summary; no Neo needed
 npm run doctor              # platform, device, sign-in, files, DB, backends
 npm run preview:live        # render live data and print the image path
+npm run token:claude        # store a Claude OAuth token for usage reporting
 ```
+
+### Behaviour options
+
+These are not part of the guided wizard; edit `~/.neo-agent-deck/config.json` and restart the
+service. Missing keys fall back to the defaults below, so an older config file keeps working.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `usageWarnPercent` | `80` | Usage key turns amber at or above this percentage. |
+| `usageCriticalPercent` | `95` | Usage key turns red. Clamped up to `usageWarnPercent` if set lower. |
+| `showProjectLabels` | `true` | Status keys name the session's project directory instead of a count. |
+| `focusOnTap` | `true` | Tapping a key that needs attention raises the owning window, then acknowledges. |
+| `notifyOnAttention` | `true` | Post a desktop notification when a session starts waiting. |
+| `attentionSound` | `"Submarine"` | A name from `/System/Library/Sounds`, or `null` for silence. |
+
+Usage keys and the InfoBar show the time remaining in the current quota window whenever the
+backend reports a reset time. A stale reading keeps its provider colour rather than a warning
+colour, so it is never mistaken for a live measurement.
+
+`focusOnTap` raises Terminal.app and iTerm tabs by matching the session's tty, and falls back to
+activating the application for other emulators. macOS asks for Automation permission the first
+time; until it is granted the tap still acknowledges and the reason is written to the log.
+
+### Claude usage when the Keychain entry is empty
+
+A Claude Code install can hold a `Claude Code-credentials` Keychain entry whose `accessToken` is an
+empty string. The sign-in works, but a separate process has nothing to present to the usage API and
+`doctor` reports `Claude Code sign-in not available`. Generate a long-lived token and store it:
+
+```bash
+claude setup-token
+```
+
+```bash
+npm run token:claude
+```
+
+The token is written to `~/.neo-agent-deck/claude-token` with mode `600` and is read after the
+environment variable and the Keychain, so a healthy Keychain entry still wins. `npm run
+token:claude -- --check` reports which source is in use, and `-- --clear` removes it.
 
 ## How it works
 
