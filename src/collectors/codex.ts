@@ -273,7 +273,9 @@ export function parseCodexProcessCwds(text: string): Map<string, number> {
   for (const line of text.split("\n")) {
     if (/^p\d+$/.test(line)) pid = Number(line.slice(1));
     else if (pid && line.startsWith("n") && line.length > 1) {
-      const cwd = path.resolve(line.slice(1));
+      // lsof is invoked only on macOS and always reports POSIX paths. Use the matching path
+      // implementation explicitly so parsing remains deterministic in cross-platform CI.
+      const cwd = path.posix.resolve(line.slice(1));
       if (ambiguous.has(cwd)) continue;
       if (result.has(cwd) && result.get(cwd) !== pid) {
         // A cwd alone cannot tell us which rollout belongs to which terminal. Offering no focus is
