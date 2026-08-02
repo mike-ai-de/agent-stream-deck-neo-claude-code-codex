@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import { configDir } from "../src/config.js";
 import { readClaudeAccessToken, tokenFilePath } from "../src/lib/claude-auth.js";
+import { clearBackoff, readBackoff } from "../src/lib/usage-backoff.js";
 
 // setup-token prints prose around the value, so a piped payload is scanned for the token itself
 // rather than trusted wholesale.
@@ -70,11 +71,19 @@ fs.writeFileSync(temporary, token, { mode: 0o600 });
 fs.renameSync(temporary, file);
 fs.chmodSync(file, 0o600);
 
+// A new token deserves a fresh attempt; the wait was earned by the old one.
+clearBackoff();
+
 console.log(`\nStored ${token.length} characters at ${file} (mode 600).`);
 await report();
 console.log(`\nApply it with:  launchctl kickstart -k gui/$(id -u)/com.neo-agent-deck`);
 
 async function report(): Promise<void> {
+  const backoff = readBackoff();
+  if (backoff.retryAt) {
+    const minutes = Math.max(1, Math.round((backoff.retryAt - Date.now()) / 60_000));
+    console.log(`Usage requests are paused for another ${minutes}m after ${backoff.failures} rejected attempt(s).`);
+  }
   try {
     const { source } = await readClaudeAccessToken();
     console.log(`Deck resolves a Claude token from: ${source}`);

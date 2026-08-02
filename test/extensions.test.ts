@@ -4,6 +4,7 @@ import { parseCodexCwd } from "../src/collectors/codex.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig, type DeckConfig } from "../src/config.js";
 import { pickPrimary } from "../src/dashboard.js";
 import { AttentionNotifier } from "../src/lib/notify.js";
+import { clearBackoff, readBackoff, writeBackoff } from "../src/lib/usage-backoff.js";
 import { formatCountdown, projectLabel } from "../src/lib/util.js";
 import { renderProviderKey, renderUsageKey, usageLevelFor } from "../src/render.js";
 import type { DashboardSnapshot, Provider, ProviderSnapshot, SessionSnapshot, UsageSnapshot } from "../src/types.js";
@@ -240,6 +241,51 @@ describe("usage backoff messaging", () => {
 
   it("never advertises a wait shorter than a minute", () => {
     expect(usageErrorMessage(429, NOW + 1_000, NOW)).toContain("retrying in 1m");
+  });
+});
+
+describe("persisted usage backoff", () => {
+  const withDir = (run: (dir: string) => void): void => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "neo-deck-backoff-"));
+    try {
+      run(dir);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("round-trips a deadline so a separate process inherits the wait", () => {
+    withDir((dir) => {
+      writeBackoff({ retryAt: NOW + 20 * 60_000, failures: 3 }, dir);
+      expect(readBackoff(dir, NOW)).toEqual({ retryAt: NOW + 20 * 60_000, failures: 3 });
+    });
+  });
+
+  it("ignores a deadline that has passed or is absurdly far out", () => {
+    withDir((dir) => {
+      writeBackoff({ retryAt: NOW - 1, failures: 3 }, dir);
+      expect(readBackoff(dir, NOW).retryAt).toBe(0);
+
+      // A clock change must not lock usage out for days.
+      writeBackoff({ retryAt: NOW + 48 * 3_600_000, failures: 3 }, dir);
+      expect(readBackoff(dir, NOW).retryAt).toBe(0);
+    });
+  });
+
+  it("treats a missing or corrupt file as no backoff", () => {
+    withDir((dir) => {
+      expect(readBackoff(dir, NOW)).toEqual({ retryAt: 0, failures: 0 });
+      fs.writeFileSync(path.join(dir, "usage-backoff.json"), "{not json");
+      expect(readBackoff(dir, NOW)).toEqual({ retryAt: 0, failures: 0 });
+    });
+  });
+
+  it("clears the deadline on request", () => {
+    withDir((dir) => {
+      writeBackoff({ retryAt: NOW + 20 * 60_000, failures: 2 }, dir);
+      clearBackoff(dir);
+      expect(readBackoff(dir, NOW).retryAt).toBe(0);
+    });
   });
 });
 

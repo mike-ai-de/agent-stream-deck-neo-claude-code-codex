@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { listJsonl, loadJson, processAlive, readTail, type FileStamp } from "../lib/files.js";
 import { readClaudeAccessToken } from "../lib/claude-auth.js";
 import { clampPercent, emptyUsage, projectLabel } from "../lib/util.js";
+import { clearBackoff, readBackoff, writeBackoff } from "../lib/usage-backoff.js";
 import { claudeProjectsDirectory, claudeSessionsDirectory, wslDistributionFromPath } from "../platform.js";
 import type { PersistedState, SessionSnapshot, UsageSnapshot, UsageWindow } from "../types.js";
 
@@ -61,13 +62,19 @@ export class ClaudeCollector {
   private scannedAt = 0;
   private usage: UsageSnapshot = emptyUsage("claude", "loading");
   private usageFetchedAt = 0;
-  private usageBackoffUntil = 0;
-  private usageFailures = 0;
+  private usageBackoffUntil: number;
+  private usageFailures: number;
 
   constructor(
     private readonly sessionDirectory = claudeSessionsDirectory(),
     private readonly projectDirectory = claudeProjectsDirectory()
-  ) {}
+  ) {
+    // Inherit any wait a previous run is still serving, so one-shot commands do not each get a
+    // free request against a rate limit the service is already backing off from.
+    const persisted = readBackoff();
+    this.usageBackoffUntil = persisted.retryAt;
+    this.usageFailures = persisted.failures;
+  }
 
   async collect(state: PersistedState, forceUsage = false): Promise<{ sessions: SessionSnapshot[]; usage: UsageSnapshot }> {
     const now = Date.now();
@@ -75,9 +82,16 @@ export class ClaudeCollector {
       this.projectFiles = await listJsonl(this.projectDirectory);
       this.scannedAt = now;
     }
+    const fetching = this.shouldFetchUsage(now, forceUsage);
+    // Say "waiting" rather than "loading": a fresh process inheriting a persisted backoff has not
+    // tried yet and never will until the deadline passes.
+    if (!fetching && now < this.usageBackoffUntil) {
+      const minutes = Math.max(1, Math.round((this.usageBackoffUntil - now) / 60_000));
+      this.usage = { ...this.usage, error: `Claude usage paused after a rejected request; retrying in ${minutes}m` };
+    }
     const [sessions] = await Promise.all([
       this.readSessions(state),
-      this.shouldFetchUsage(now, forceUsage) ? this.readUsage() : Promise.resolve()
+      fetching ? this.readUsage() : Promise.resolve()
     ]);
     return { sessions, usage: this.usage };
   }
@@ -179,6 +193,7 @@ export class ClaudeCollector {
       };
       this.usageFailures = 0;
       this.usageBackoffUntil = 0;
+      clearBackoff();
     } catch (error) {
       // A transport failure (offline, DNS, timeout) has no status code and did not reach the API,
       // so it gets the gentle backoff rather than the escalating one.
@@ -192,6 +207,7 @@ export class ClaudeCollector {
     this.usageFailures = escalating ? Math.min(this.usageFailures + 1, USAGE_BACKOFF_STEPS.length - 1) : 0;
     const step = escalating ? USAGE_BACKOFF_STEPS[this.usageFailures] : USAGE_INTERVAL_MS;
     this.usageBackoffUntil = Date.now() + Math.max(retryAfterMs ?? 0, step);
+    if (escalating) writeBackoff({ retryAt: this.usageBackoffUntil, failures: this.usageFailures });
   }
 }
 
