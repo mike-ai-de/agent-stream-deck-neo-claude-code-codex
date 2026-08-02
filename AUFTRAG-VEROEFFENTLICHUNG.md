@@ -219,7 +219,7 @@ des Nutzers anlegen, pushen, auf öffentlich stellen.
 
 ## 5. Entscheidungen des Eigentümers
 
-Entscheidung 1 ist gefallen. Entscheidung 2 ist vor Phase 4 zu klären, nicht selbst zu treffen.
+Beide Entscheidungen sind gefallen. Sie sind hier festgehalten, nicht neu zu verhandeln.
 
 ### Entscheidung 1 — Claude-Usage: **entschieden, wird entfernt**
 
@@ -241,9 +241,30 @@ Felder `input_tokens`, `output_tokens` und beide Cache-Werte liegen je Antwort m
 eine Probe ergab 151 M Tokens über 5 h und 233 M über 7 d. Das wären Rohtokens, keine
 Plan-Prozente — entsprechend ehrlich zu beschriften.
 
-### Entscheidung 2 — Wie heißt das Projekt?
+### Entscheidung 2 — Name: **`neo-agent-deck-cc`**
 
-Der aktuelle Name `neo-agent-deck` ist der des Upstream-Projekts. Bei einem öffentlichen,
-inhaltlich abweichenden Fork ist ein eigener Name die sauberere Lösung: er verhindert Verwechslung,
-und Issues landen beim richtigen Maintainer. Vorschlag einholen, bevor `package.json` und README
-final geschrieben werden.
+Entschieden. Das Suffix steht für **Claude Code & Codex** — die beiden Agenten, auf die dieser Fork
+zugeschnitten ist.
+
+**Die README muss das in der ersten Zeile auflösen.** Ein `-cc` am Ende eines öffentlichen Repos
+liest sich sonst für viele als Creative-Commons-Hinweis, und das Projekt steht unter MIT. Ein
+halber Satz räumt das aus; ungeklärt wird es zur Stolperfalle.
+
+Was den Namen trägt:
+
+- `package.json`: `name`, `repository`, `bugs`, `homepage`
+- Repository-Name auf GitHub
+- README-Titel und Fork-Hinweis
+
+Was den Namen **nicht** trägt, und zwar bewusst:
+
+- der launchd-Label `com.neo-agent-deck`
+- das Konfigverzeichnis `~/.neo-agent-deck`
+- das Installationsverzeichnis `~/.local/share/neo-agent-deck`
+- die Logdateien `NeoAgentDeck.log` / `.error.log`
+
+Diese Bezeichner umzubenennen bringt nichts und kostet etwas: der laufende LaunchAgent würde
+verwaisen statt ersetzt, und die bestehende Konfiguration samt Quittierungsstand wäre plötzlich
+unauffindbar. Wer sie doch anfasst, braucht eine Migration mit `launchctl bootout` des alten Labels
+und einem Umzug des Konfigverzeichnisses — der Aufwand lohnt für einen kosmetischen Gleichklang
+nicht. Lass sie wie sie sind.
