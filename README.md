@@ -45,6 +45,30 @@ Die Konfiguration enthält keine Zugangsdaten. Die Claude-Kontingente werden zur
 
 Über HTTP gibt es keine Fernaktionen. Der private Unix-Socket (`~/.neo-agent-deck/osca-neo.sock`, 0600) erlaubt ausschließlich Seitennavigation.
 
+## Statusseite fürs Handy
+
+Ein eigener, nur lesender Dienst (`scripts/osca-mobile.ts` → `src/osca/mobile.ts`) zeigt alle drei Seiten so, wie die Tasten am Neo aussehen: gleiche Texte, Farben und Kontingentbalken, dazu die Infobar. Er läuft getrennt vom HID-Dienst, liest dessen `/api/status` und gibt nur die Tasteninhalte weiter, keine Sitzungs-IDs, Pfade, PIDs oder Hashes. Die Seite aktualisiert sich alle fünf Sekunden. Zwischen AGENTS, LOCAL und OPS wechselst du per Wischen oder über die Reiter. Der Punkt am Reiter zeigt, welche Seite gerade am Gerät sichtbar ist. Fällt der Neo-Dienst aus oder ist das Gerät getrennt, zeigt die Seite das deutlich an.
+
+| | |
+| --- | --- |
+| Lokal | <http://127.0.0.1:9464>, JSON: `/api/mobile` |
+| Handy (Tailnet) | <https://osca.tail73d176.ts.net:9464> |
+| Installation | `~/.local/share/osca-neo-mobile` (Kopie von `dist`, `node_modules` wie beim Neo-Dienst) |
+| Dienst | LaunchAgent `de.osca.neo-mobile`, Vorlage: [`deploy/osca/de.osca.neo-mobile.plist`](deploy/osca/de.osca.neo-mobile.plist) |
+| Logs | `~/Library/Logs/OSCANeoMobile.log` und `OSCANeoMobile.error.log` |
+
+Der Dienst lauscht nur auf `127.0.0.1` und nimmt nur Anfragen an Loopback- oder `*.ts.net`-Hostnamen an. Erreichbar wird er vom Handy über Tailscale Serve, also nur im eigenen Tailnet und nicht öffentlich (kein Funnel):
+
+```sh
+cp deploy/osca/de.osca.neo-mobile.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/de.osca.neo-mobile.plist
+/Applications/Tailscale.app/Contents/MacOS/Tailscale serve --bg --https=9464 http://127.0.0.1:9464
+```
+
+Auf dem iPhone in Safari öffnen und über „Teilen → Zum Home-Bildschirm“ als App ablegen.
+
+Update nach einem neuen Build: `dist` nach `~/.local/share/osca-neo-mobile/dist` kopieren und `launchctl kickstart -k gui/$(id -u)/de.osca.neo-mobile` ausführen. Entfernen: `tailscale serve --https=9464 off`, `launchctl bootout gui/$(id -u)/de.osca.neo-mobile`, Plist und Installationsordner löschen.
+
 ## Entwicklung
 
 Die Abhängigkeiten liegen als lokale Kopie in `node_modules` und wurden nicht aktualisiert.

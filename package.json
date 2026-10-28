@@ -49,7 +49,8 @@
     "start": "node dist/src/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview:osca": "tsx scripts/osca-preview.ts"
+    "preview:osca": "tsx scripts/osca-preview.ts",
+    "mobile": "tsx scripts/osca-mobile.ts"
   },
   "dependencies": {
     "@elgato-stream-deck/node": "^7.6.3",

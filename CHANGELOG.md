@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Mobile Statusseite (`npm run mobile` bzw. `dist/scripts/osca-mobile.js`) auf
+  `127.0.0.1:9464`: alle drei Seiten im Neo-Design, nur lesend, bereinigte
+  Daten, für den Zugriff über Tailscale Serve. LaunchAgent-Vorlage
+  `deploy/osca/de.osca.neo-mobile.plist`.
+
 ## [0.3.1-osca.1] - 2026-10-26
 
 Individueller OSCA-Build für den Mac Studio, basierend auf 0.3.1.
