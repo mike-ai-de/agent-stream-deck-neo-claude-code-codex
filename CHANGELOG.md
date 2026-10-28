@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1-osca.1] - 2026-10-26
+
+Individueller OSCA-Build für den Mac Studio, basierend auf 0.3.1.
+
+### Added
+
+- Drei vollständige Tastenseiten AGENTS, LOCAL und OPS mit je acht Aktionen;
+  Seitenwechsel für Tasten und Infobar über die Touch Points.
+- Collector für Claude- und Codex-Kontingente, Ollama, System (CPU, Memory
+  Pressure, GPU, Volumes), Hermes, Sprache, Backup und OPS-Belege.
+- Lesende Statusseite auf `127.0.0.1:9463` mit `/api/status` und
+  `/preview/0.png` bis `2.png`.
+- Skripte `osca-setup`, `osca-status` und `osca-preview`.
+- Konfigurations- und LaunchAgent-Vorlage unter `deploy/osca`, Bericht und
+  Rückweg unter `docs/osca`.
+
 ## [0.3.1] - 2026-07-17
 
 ### Fixed

@@ -1,0 +1,47 @@
+{
+  "schema": 3,
+  "brightness": 70,
+  "port": 9463,
+  "hermesRoot": "/Volumes/OSCA-DATA/Projects/OSCA-Hermes-Neustart-2026-10-26",
+  "hermesDashboard": "http://127.0.0.1:9119",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "codexExecutable": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+  "claudeExecutable": "/Users/mike/.local/bin/claude",
+  "pages": [
+    [
+      "claude",
+      "codex",
+      "hermes",
+      "agents",
+      "claudeQuota",
+      "codexQuota",
+      "ollama",
+      "needs"
+    ],
+    [
+      "cpu",
+      "memory",
+      "gpu",
+      "disks",
+      "ollamaMemory",
+      "inference",
+      "speech",
+      "services"
+    ],
+    [
+      "mail",
+      "notion",
+      "exchange",
+      "backup",
+      "hostinger",
+      "stop",
+      "nextCheck",
+      "control"
+    ]
+  ],
+  "pageNames": [
+    "AGENTS",
+    "LOCAL",
+    "OPS"
+  ]
+}

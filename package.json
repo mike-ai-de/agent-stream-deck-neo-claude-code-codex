@@ -8,12 +8,12 @@
   "author": "Manuel Burgschachner",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m-a-b-u/neo-agent-deck.git"
+    "url": "git+https://github.com/mike-ai-de/agent-stream-deck-neo-claude-code-codex.git"
   },
   "bugs": {
-    "url": "https://github.com/m-a-b-u/neo-agent-deck/issues"
+    "url": "https://github.com/mike-ai-de/agent-stream-deck-neo-claude-code-codex/issues"
   },
-  "homepage": "https://github.com/m-a-b-u/neo-agent-deck#readme",
+  "homepage": "https://github.com/mike-ai-de/agent-stream-deck-neo-claude-code-codex#readme",
   "keywords": [
     "stream-deck",
     "stream-deck-neo",

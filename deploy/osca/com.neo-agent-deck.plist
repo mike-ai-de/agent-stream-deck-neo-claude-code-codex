@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.neo-agent-deck</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mike/.local/node/node</string>
+        <string>/Users/mike/.local/share/neo-agent-deck/dist/src/index.js</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>/Users/mike/Library/Logs/NeoAgentDeck.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mike/Library/Logs/NeoAgentDeck.error.log</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/mike/.local/share/neo-agent-deck</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_PATH</key>
+        <string>/Users/mike/.local/share/neo-agent-deck/node_modules</string>
+    </dict>
+</dict>
+</plist>
