@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { NeoAgentDeck } from "./deck.js";
+import { OscaNeo } from "./osca/app.js";
 
-const app = new NeoAgentDeck();
+const app = new OscaNeo();
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`Received ${signal}; stopping Neo Agent Deck.`);
