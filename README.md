@@ -51,6 +51,8 @@ Unter `/cockpit` liefert der Handy-Dienst ein animiertes Glascockpit im Stil ein
 
 - **Lampen:** Claude, Codex, Hermes und Orca·Pi leuchten grün, solange sie arbeiten; die LLM-Zeile zeigt das geladene Ollama-Modell und die Phase READING/WRITING.
 - **Instrumente:** CPU und GPU (GPU ohne Warnbereich, Volllast ist gewollt), 18 CPU-Kerne als LED-Pegel mit Spitzenwert, Ausgabe-Token/s, Chip-Temperatur mit macOS-Hitzestufe, Swap.
+- **IN·OUT:** geteilte Nadel, Mitte = Leerlauf, links Einlesetempo (0–1000 T/S, Magenta), rechts Schreibtempo (0–40 T/S, Cyan); gespiegelte Verlaufskurve.
+- **Token Totalizer:** rollende Zählwerke für Input und Output aus dem eigenständigen [OSCA Token Ledger](/Volumes/OSCA-DATA/Projects/OSCA/Token-Ledger) (`127.0.0.1:9466`), Zeitraum 1H / 24H / MONTH / YEAR / TOTAL seit der OSCA-Initialisierung am 25.10.2026. Läuft der Ledger nicht, zeigt das Feld „LEDGER OFFLINE“.
 - **Fuel:** Claude-Kontingent 5h/7d und Codex 7d als Tankanzeige mit Reset-Zeitpunkt.
 - **EICAS:** Warnzeile für Temperatur, Swap/Speicherdruck, CPU-Last ab 90 %, knappe Kontingente und fehlende Quellen.
 - **Flight Recorder:** Verlaufskurve unter jedem Instrument, live (1 Min.) oder 1 h / 24 h / 7 d / 30 d.
@@ -58,7 +60,7 @@ Unter `/cockpit` liefert der Handy-Dienst ein animiertes Glascockpit im Stil ein
 
 Datenquellen, alle nur lesend: das native Messprogramm `native/osca-sensors.swift` (CPU je Kern, GPU, Temperatursensoren, Hitzestufe, Swap; viermal pro Sekunde, ohne Administratorrechte; wird bei `npm run build` nach `dist/bin/osca-sensors` gebaut), das Ollama-Log (`slot print_timing` für Token/s und Phase), `orca terminal list --json` (Aktivität der letzten 15 s; Titel „Pi …“/„π …“ zählen als Pi) und `/api/status` des Neo-Dienstes. Die Seite bekommt die Werte per Server-Sent Events (`/api/cockpit/stream`, 4 Hz), Schnappschuss unter `/api/cockpit`. Keine Sitzungs-IDs, Pfade, PIDs oder Terminalinhalte.
 
-Der Flight Recorder speichert einmal pro Sekunde CPU, GPU, Token/s, Chip-Temperatur und Swap in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/cockpit-recorder.sqlite` (`OSCA_RECORDER_DB`, Aufbewahrung `OSCA_RECORDER_DAYS`, Standard 30 Tage, etwa 4 MB pro Tag). `/api/cockpit/history?range=1h|24h|7d|30d` liefert bis zu 240 gemittelte Punkte.
+Der Flight Recorder speichert einmal pro Sekunde CPU, GPU, Output- und Input-Token/s, Chip-Temperatur und Swap in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/cockpit-recorder.sqlite` (`OSCA_RECORDER_DB`, Aufbewahrung `OSCA_RECORDER_DAYS`, Standard 30 Tage, etwa 4 MB pro Tag). `/api/cockpit/history?range=1h|24h|7d|30d` liefert bis zu 240 gemittelte Punkte.
 
 Als App: `https://osca.tail73d176.ts.net:9464/cockpit` in Safari öffnen, „Teilen → Zum Home-Bildschirm“. Dank Manifest startet sie im Vollbild ohne Adresszeile und heißt „OSCA“. Solange sie offen ist, hält sie den Bildschirm wach (Wake Lock). Auf großen Bildschirmen im Querformat (ab 1300 px Breite, z. B. am Mac Studio als Web-App im Vollbild mit ⌃⌘F) skaliert sich das Cockpit automatisch auf die ganze Fläche; die Instrumente werden dabei in voller Auflösung gezeichnet.
 

@@ -1,6 +1,6 @@
 import { describe,it,expect } from "vitest";
 import http from "node:http";
-import { parseSensorLine,parseLlamaLog,parseOrcaTerminals,cockpitFrame,CockpitHub,type SensorFrame } from "../src/osca/cockpit.js";
+import { parseSensorLine,parseLlamaLog,parseOrcaTerminals,parseLedger,cockpitFrame,CockpitHub,type SensorFrame } from "../src/osca/cockpit.js";
 import { createMobileServer } from "../src/osca/mobile.js";
 import { FlightRecorder } from "../src/osca/recorder.js";
 import { OscaDashboard } from "../src/osca/dashboard.js";
@@ -92,6 +92,21 @@ describe("cockpit routes",()=>{
  });
 });
 
+describe("token ledger integration",()=>{
+ const body={ok:true,init:"2026-10-25",at:now,ranges:{h1:{requests:1,inNew:10,inTotal:100,out:5},h24:{requests:2,inNew:20,inTotal:200,out:10},month:{requests:3,inNew:30,inTotal:300,out:15},year:{requests:4,inNew:40,inTotal:400,out:20},total:{requests:5,inNew:50,inTotal:500,out:25,from:1}},perDay:{inNew:2,out:1},archive:{files:6}};
+ it("passes on only the token numbers",()=>{
+  const t=parseLedger(body);expect(t.ranges.total).toEqual({requests:5,inNew:50,inTotal:500,out:25});expect(t.init).toBe("2026-10-25");expect(JSON.stringify(t)).not.toContain("archive");
+  expect(()=>parseLedger({ok:false})).toThrow();
+  const f=cockpitFrame({sensors:sensors(),llm:null,orca:null,status:status(),tokens:t,now});expect(f.sources.ledger).toBe(true);expect(f.tokens?.ranges.h24.out).toBe(10);
+  expect(cockpitFrame({sensors:sensors(),llm:null,orca:null,status:status(),now}).tokens).toBeNull();
+ });
+ it("records the input rate while the prompt is read",()=>{
+  const r=new FlightRecorder(":memory:");
+  r.record(cockpitFrame({sensors:sensors(),llm:{phase:"reading",tps:null,lastTps:16,prefillTps:640,progress:0.4},orca:null,status:status(),now}),now);
+  expect(r.series("1h",240,now+1000).points[0].slice(3)).toEqual([0,70,640]);r.close();
+ });
+});
+
 describe("flight recorder",()=>{
  it("stores one row per second, buckets ranges and prunes old data",()=>{
   const r=new FlightRecorder(":memory:",1);
@@ -99,7 +114,7 @@ describe("flight recorder",()=>{
   r.record(f,now);r.record(f,now+400);r.record({...f,live:{...f.live,cpu:30}},now+1000);
   expect(r.count()).toBe(2);
   const s=r.series("1h",240,now+2000);expect(s.step).toBe(15000);expect(s.points).toHaveLength(1);
-  expect(s.points[0].slice(1)).toEqual([21,99,16,70]);
+  expect(s.points[0].slice(1)).toEqual([21,99,16,70,0]);
   r.record(f,now-3*86400e3);expect(r.count()).toBe(3);expect(r.prune(now)).toBe(1);expect(r.count()).toBe(2);
   expect(()=>r.series("1y")).toThrow();
   r.close();
@@ -115,7 +130,7 @@ describe("flight recorder",()=>{
    expect((await fetch(url+"/api/cockpit/history?range=forever")).status).toBe(400);
    const m=await (await fetch(url+"/manifest.webmanifest")).json();expect(m).toMatchObject({short_name:"OSCA",display:"standalone",start_url:"/cockpit"});
    expect((await fetch(url+"/cockpit")).headers.get("content-security-policy")).toContain("manifest-src 'self'");
-   const js=await (await fetch(url+"/widget.js")).text();expect(js).toContain(`const BASE = "http://127.0.0.1:${port}";`);expect(js).toContain("accessoryRectangular");
+   const js=await (await fetch(url+"/widget.js")).text();expect(js).toContain(`const BASE = "http://127.0.0.1:${port}";`);expect(js).toContain("accessoryRectangular");expect(js).toContain("TOKENS IN");
    expect(await (await fetch(url+"/widget")).text()).toContain("SKRIPT KOPIEREN");
   }finally{server.closeAllConnections();await new Promise(r=>server.close(r));hub.stop();recorder.close();}
  });

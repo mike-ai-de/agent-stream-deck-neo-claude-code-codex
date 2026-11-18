@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scriptable-Widget für Sperr- und Home-Bildschirm unter `/widget`.
 - Web-App-Manifest, damit das Cockpit als Home-Bildschirm-App ohne Adresszeile startet.
 - Großbild-Modus: Auf breiten Bildschirmen skaliert das Cockpit auf die volle Fenstergröße.
+- IN·OUT-Instrument mit Mittelstellung (Einlesen links, Schreiben rechts) und gespiegelter Verlaufskurve; Flight Recorder speichert zusätzlich das Einlesetempo.
+- Token Totalizer mit rollenden Zählwerken; Daten vom eigenständigen OSCA Token Ledger. Widget zeigt Token-Summen.
 - Mobile Statusseite (`npm run mobile` bzw. `dist/scripts/osca-mobile.js`) auf
   `127.0.0.1:9464`: alle drei Seiten im Neo-Design, nur lesend, bereinigte
   Daten, für den Zugriff über Tailscale Serve. LaunchAgent-Vorlage

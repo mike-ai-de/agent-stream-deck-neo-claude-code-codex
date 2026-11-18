@@ -22,6 +22,7 @@ function levelColor(l) { return l === "warning" ? C.red : l === "caution" ? C.am
 function lampColor(l) { return l === "active" ? C.green : l === "unknown" ? C.amber : C.dim; }
 function swapText(b) { return b == null ? "—" : b < 1048576 ? "0" : b < 1073741824 ? Math.round(b / 1048576) + "M" : (b / 1073741824).toFixed(1) + "G"; }
 function lamps(d) { const a = d.agents; return [["C", a.claude.lamp], ["X", a.codex.lamp], ["H", a.hermes.lamp], ["O", a.orca.lamp], ["L", d.llm.lamp]]; }
+function compact(n) { return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n); }
 function alertText(d) { return d.alerts.length ? d.alerts[0].text : "ALL SYSTEMS NORMAL"; }
 function alertLevel(d) { return d.alerts.length ? d.alerts[0].level : "ok"; }
 
@@ -78,7 +79,8 @@ function build(d) {
     const p = (args.widgetParameter || "temp").toLowerCase();
     const img = p === "gpu" ? gaugeImage(live.gpu, 0, 100, "GPU", pct(live.gpu).replace("%", ""), C.green, true)
       : p === "cpu" ? gaugeImage(live.cpu, 0, 100, "CPU", pct(live.cpu).replace("%", ""), C.green, true)
-      : p === "tps" ? gaugeImage(llm.phase === "writing" ? llm.tps : 0, 0, 40, "T/S", llm.phase === "writing" && llm.tps != null ? llm.tps.toFixed(0) : "–", C.cyan, true)
+      : p === "tps" ? (llm.phase === "reading" && llm.prefillTps != null ? gaugeImage(llm.prefillTps, 0, 1000, "IN T/S", String(Math.round(llm.prefillTps)), C.cyan, true)
+        : gaugeImage(llm.phase === "writing" ? llm.tps : 0, 0, 40, "OUT T/S", llm.phase === "writing" && llm.tps != null ? llm.tps.toFixed(0) : "–", C.cyan, true))
       : gaugeImage(t.max, 30, 110, "CHIP", t.max == null ? "–" : Math.round(t.max) + "°", levelColor(t.level), true);
     w.addImage(img).centerAlignImage();
     return w;
@@ -111,6 +113,7 @@ function build(d) {
     const q = w.addStack(); q.spacing = 10;
     [["CL 5H", d.quota.claude.h5], ["CL 7D", d.quota.claude.d7], ["CX 7D", d.quota.codex.d7]].forEach(function (x) { const r = x[1].remaining; text(q, x[0] + " " + pct(r), 10, r == null ? C.dim : r <= 10 ? C.red : r <= 20 ? C.amber : C.white, "mono"); });
     w.addSpacer(4);
+    if (d.tokens) { const tt = d.tokens.ranges.total; text(w, "TOKENS IN " + compact(tt.inNew) + " · OUT " + compact(tt.out) + " · 24H " + compact(d.tokens.ranges.h24.inNew) + "/" + compact(d.tokens.ranges.h24.out), 10, C.cyan, "mono"); w.addSpacer(4); }
   }
   text(w, (d.alerts.length ? "⚠ " : "") + alertText(d) + (fam === "small" ? "" : " · SWAP " + swapText(d.memory.swapBytes)), fam === "small" ? 9 : 10, levelColor(alertLevel(d)), "heavy");
   return w;
