@@ -16,7 +16,8 @@ body{padding:calc(env(safe-area-inset-top) + 6px) max(10px,env(safe-area-inset-r
 body::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px);mix-blend-mode:screen}
 .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
 .deck{max-width:520px;margin:0 auto;display:grid;gap:8px}
-@media (orientation:landscape) and (min-width:700px){.deck{max-width:1100px;grid-template-columns:1fr 1fr}.span{grid-column:1/-1}}
+@media (orientation:landscape) and (min-width:700px){.deck{max-width:1100px;grid-template-columns:1fr 1fr}.span{grid-column:1/-1}#eicasP{grid-column:auto}}
+html.wall,html.wall body{height:100%;overflow:hidden}html.wall body{display:flex;align-items:center;justify-content:center;padding:0}html.wall body::after{background-size:100% 3px}html.wall .deck{width:1100px;max-width:none;margin:0}
 header{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 0}
 .brand .bt{font-weight:800;letter-spacing:.22em;font-size:15px}.brand b{color:var(--cyan)}.brand .bs{font-size:8.5px;letter-spacing:.32em;color:#8a96a3;margin-top:3px;font-weight:600}
 .hdr{display:flex;gap:10px;align-items:center;font-size:12px}
@@ -101,7 +102,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="f" id="f-c7"><span class="k">CLAUDE 7D</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
   <div class="f" id="f-x7"><span class="k">CODEX 7D</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
  </div></section>
- <section class="panel span"><div class="ttl">EICAS</div><div class="status"><span class="chip" id="cTemp">TEMP</span><span class="chip" id="cSwap">SWAP</span></div><div class="eicas mono" id="eicas"><div class="normal">ALL SYSTEMS NORMAL</div></div></section>
+ <section class="panel span" id="eicasP"><div class="ttl">EICAS</div><div class="status"><span class="chip" id="cTemp">TEMP</span><span class="chip" id="cSwap">SWAP</span></div><div class="eicas mono" id="eicas"><div class="normal">ALL SYSTEMS NORMAL</div></div></section>
  </div>
  <div id="sys" class="span"><section class="panel"><div class="ttl" id="sysT">SYSTEM STATUS</div><div class="sysg" id="sysG"><div class="hint">LOADING…</div></div><a class="wlink" href="/widget">WIDGET FÜR SPERRBILDSCHIRM EINRICHTEN ›</a></section></div>
  <nav class="span"><button class="on" id="bPfd">PFD</button><button id="bSys">SYS</button><a href="/">NEO</a></nav>
@@ -116,7 +117,8 @@ var cores=[],peaks=[],peakT=[];
 var HIST=240,hist={cpu:[],gpu:[],tps:[],temp:[]};
 function lerp(a,b,k){return a+(b-a)*k;}
 function zone(v,c,w){return v>=w?C.red:v>=c?C.amber:C.green;}
-function fit(cv){var r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1,w=Math.round(r.width*d),h=Math.round(r.height*d);if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}var x=cv.getContext("2d");x.setTransform(d,0,0,d,0,0);return {x:x,w:r.width,h:r.height};}
+var ZOOM=1;
+function fit(cv){var r=cv.getBoundingClientRect(),ratio=cv.offsetWidth?r.width/cv.offsetWidth:1,d=(window.devicePixelRatio||1)*ZOOM/(ratio||1),w=Math.round(r.width*d),h=Math.round(r.height*d);if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}var x=cv.getContext("2d");x.setTransform(d,0,0,d,0,0);return {x:x,w:r.width,h:r.height};}
 function gauge(cv,o){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);
  var cx=w/2,cy=h*0.56,R=Math.min(w*0.42,h*0.5),a0=Math.PI*0.75,a1=Math.PI*2.25;
@@ -216,9 +218,13 @@ function sysView(){fetch("/api/mobile",{cache:"no-store"}).then(function(r){retu
  m.pages.forEach(function(pg){var h=document.createElement("div");h.className="hint";h.style.textAlign="left";h.style.color="#ff4fd8";h.style.paddingTop="10px";h.textContent=pg.name;g.appendChild(h);
   pg.tiles.forEach(function(t){var r=document.createElement("div");r.className="sysr"+(t.quality==="stale"||t.quality==="unavailable"?" stale":"");var k=document.createElement("div");k.className="k";k.textContent=t.title;var v=document.createElement("div");v.className="v mono";
    var txt=t.quota?t.quota.windows.map(function(w){return w.label+" "+(w.remaining==null?"—":Math.round(w.remaining)+"%");}).join(" · "):t.lines.join(" · ");v.textContent=txt;var s=document.createElement("small");s.textContent=t.footer;v.appendChild(s);r.appendChild(k);r.appendChild(v);g.appendChild(r);});});
- $("sysT").textContent="SYSTEM STATUS · v"+m.version;}).catch(function(){});}
+ $("sysT").textContent="SYSTEM STATUS · v"+m.version;wall();}).catch(function(){});}
 var sysTimer=null;
 Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[]};clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
-$("bSys").onclick=function(){$("pfd").hidden=true;$("pfd").style.display="none";$("sys").style.display="block";$("bSys").className="on";$("bPfd").className="";sysView();sysTimer=setInterval(sysView,5000);};
-$("bPfd").onclick=function(){$("pfd").hidden=false;$("pfd").style.display="";$("sys").style.display="none";$("bPfd").className="on";$("bSys").className="";clearInterval(sysTimer);boot=performance.now();};
+$("bSys").onclick=function(){$("pfd").hidden=true;$("pfd").style.display="none";$("sys").style.display="block";$("bSys").className="on";$("bPfd").className="";sysView();sysTimer=setInterval(sysView,5000);wall();};
+$("bPfd").onclick=function(){$("pfd").hidden=false;$("pfd").style.display="";$("sys").style.display="none";$("bPfd").className="on";$("bSys").className="";clearInterval(sysTimer);boot=performance.now();wall();};
+// Big-screen mode (e.g. Mac Studio display): scale the whole deck to fill the window, re-rendering canvases at full resolution.
+function wall(){var dk=document.querySelector(".deck"),on=window.innerWidth>=1300&&window.innerWidth>window.innerHeight;document.documentElement.classList.toggle("wall",on);dk.style.zoom="";ZOOM=1;if(!on)return;
+ var h=dk.offsetHeight||1;ZOOM=Math.max(0.5,Math.min(window.innerWidth*0.98/1100,window.innerHeight*0.97/h));dk.style.zoom=String(ZOOM);}
+var wallT=null;window.addEventListener("resize",function(){clearTimeout(wallT);wallT=setTimeout(wall,120);});wall();setTimeout(wall,600);
 </script></body></html>`;}

@@ -60,7 +60,7 @@ Datenquellen, alle nur lesend: das native Messprogramm `native/osca-sensors.swif
 
 Der Flight Recorder speichert einmal pro Sekunde CPU, GPU, Token/s, Chip-Temperatur und Swap in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/cockpit-recorder.sqlite` (`OSCA_RECORDER_DB`, Aufbewahrung `OSCA_RECORDER_DAYS`, Standard 30 Tage, etwa 4 MB pro Tag). `/api/cockpit/history?range=1h|24h|7d|30d` liefert bis zu 240 gemittelte Punkte.
 
-Als App: `https://osca.tail73d176.ts.net:9464/cockpit` in Safari öffnen, „Teilen → Zum Home-Bildschirm“. Dank Manifest startet sie im Vollbild ohne Adresszeile und heißt „OSCA“. Solange sie offen ist, hält sie den Bildschirm wach (Wake Lock).
+Als App: `https://osca.tail73d176.ts.net:9464/cockpit` in Safari öffnen, „Teilen → Zum Home-Bildschirm“. Dank Manifest startet sie im Vollbild ohne Adresszeile und heißt „OSCA“. Solange sie offen ist, hält sie den Bildschirm wach (Wake Lock). Auf großen Bildschirmen im Querformat (ab 1300 px Breite, z. B. am Mac Studio als Web-App im Vollbild mit ⌃⌘F) skaliert sich das Cockpit automatisch auf die ganze Fläche; die Instrumente werden dabei in voller Auflösung gezeichnet.
 
 **Widget (Scriptable):** `/widget` zeigt das fertige Skript mit Kopier-Button und Anleitung, `/widget.js` liefert es als Text, mit der Adresse des aufrufenden Hosts. Sperrbildschirm: rund (Parameter `temp`, `gpu`, `cpu` oder `tps`), rechteckig, einzeilig; Home-Bildschirm: klein, mittel, groß. Widgets sind Standbilder, die iOS etwa alle 5–15 Minuten erneuert; ein Tipp öffnet das Cockpit.
 
