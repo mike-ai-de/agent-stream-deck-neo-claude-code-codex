@@ -49,6 +49,8 @@ Die Konfiguration enthält keine Zugangsdaten. Die Claude-Kontingente werden zur
 
 Ein eigener, nur lesender Dienst (`scripts/osca-mobile.ts` → `src/osca/mobile.ts`) zeigt alle drei Seiten so, wie die Tasten am Neo aussehen: gleiche Texte, Farben und Kontingentbalken, dazu die Infobar. Er läuft getrennt vom HID-Dienst, liest dessen `/api/status` und gibt nur die Tasteninhalte weiter, keine Sitzungs-IDs, Pfade, PIDs oder Hashes. Die Seite aktualisiert sich alle fünf Sekunden. Zwischen AGENTS, LOCAL und OPS wechselst du per Wischen oder über die Reiter. Der Punkt am Reiter zeigt, welche Seite gerade am Gerät sichtbar ist. Fällt der Neo-Dienst aus oder ist das Gerät getrennt, zeigt die Seite das deutlich an.
 
+Die Handyseite bietet pro Kachel einen lokalen Verlauf. Der Dienst speichert einmal pro Minute bereinigte Kachelinhalte und verfügbare Messwerte in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/history.sqlite` (alternativ `OSCA_NEO_HISTORY_DB`). Die Speicherung beginnt mit der Aktivierung; vorhandene alte Protokolle werden nicht rückwirkend importiert. Die Detailansicht ermöglicht das Löschen einzelner angezeigter Messpunkte oder der gesamten Historie einer Kachel nach Bestätigung. Andere Verläufe bleiben erhalten. Lücken oder unbekannte Werte sind keine Nullwerte; Inferenzwerte zeigen den zuletzt vom Neo gemeldeten Wert, nicht garantiert jede einzelne Anfrage. Bei gestopptem Handy- oder Neo-Dienst entstehen Lücken. Der Webdienst erlaubt zusätzlich ausschließlich für die eigene Verlaufshistorie geschützte Löschanfragen; Geräteaktionen bleiben über HTTP deaktiviert.
+
 | | |
 | --- | --- |
 | Lokal | <http://127.0.0.1:9464>, JSON: `/api/mobile` |

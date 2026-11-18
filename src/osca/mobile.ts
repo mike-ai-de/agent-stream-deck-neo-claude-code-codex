@@ -1,5 +1,6 @@
 import http from "node:http";import {randomBytes} from "node:crypto";import sharp from "sharp";
 import {PAGES,PAGE_NAMES,counts,type Snapshot,type Quality} from "./model.js";import {tile} from "./view.js";import {quotaStale} from "./quota.js";import {fetchJson} from "./io.js";
+import {History,modules} from "./history.js";
 
 // Read-only mobile status page. Runs as its own process next to the HID service, reads 127.0.0.1:9463/api/status
 // and passes on only what the Neo keys show: no session IDs, paths, PIDs or hashes.
@@ -21,7 +22,7 @@ export function allowedHost(host:string|undefined,port:number):boolean{if(!host)
 
 const ICON=`<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="180" height="180" fill="#050a12"/>${[0,1,2,3,4,5,6,7].map(i=>`<rect x="${18+(i%4)*38}" y="${40+Math.floor(i/4)*38}" width="30" height="30" rx="6" fill="#101a29" stroke="${["#63d7e5","#72e6af","#72e6af","#63d7e5","#63d7e5","#63d7e5","#ffbc66","#96a4ba"][i]}" stroke-opacity=".8" stroke-width="2"/>`).join("")}<rect x="48" y="124" width="84" height="18" rx="5" fill="#0b1321" stroke="#63d7e5" stroke-opacity=".5"/></svg>`;
 
-export function mobileHtml(nonce:string):string{return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#050a12"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="OSCA Neo"><link rel="apple-touch-icon" href="/icon.png"><title>OSCA Neo</title>
+export function mobileHtml(nonce:string,deleteToken=""):string{return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#050a12"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="OSCA Neo"><link rel="apple-touch-icon" href="/icon.png"><title>OSCA Neo</title>
 <style nonce="${nonce}">
 :root{--cyan:#63d7e5;--green:#72e6af;--amber:#ffbc66;--red:#ff7c88;--gray:#96a4ba;--key:#101a29;--bg:#050a12;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -60,27 +61,41 @@ nav button.device::after{content:"";position:absolute;top:6px;right:8px;width:6p
 footer{margin:18px max(16px,env(safe-area-inset-left)) 0;text-align:center;font-size:11.5px;line-height:1.5;color:#6f7f96}
 .banner{display:none;margin:0 max(16px,env(safe-area-inset-left)) 12px;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:600;background:rgba(255,124,136,.12);color:var(--red);border:1px solid rgba(255,124,136,.35)}
 .banner.on{display:block}.banner.amber{background:rgba(255,188,102,.1);color:var(--amber);border-color:rgba(255,188,102,.35)}
+.key{cursor:pointer}.pages[hidden],nav[hidden]{display:none}.detail{max-width:760px;margin:0 auto;padding:0 16px}.detail[hidden]{display:none}.detail button{background:#102336;color:#dffaff;border:1px solid #315468;border-radius:9px;padding:10px;margin:4px}.detail .danger{border-color:#a44b52;color:#ffb7bb}.detail .panel{background:#0b1321;border:1px solid #24384c;border-radius:14px;padding:16px}.detail svg{width:100%;height:180px;background:#101a29;border-radius:8px}.detail .entry{border-top:1px solid #263749;padding:10px 0;font-size:14px}.detail .muted{color:#a8b8cd;font-size:13px}
 </style></head><body>
 <header><h1>OSCA <span>Neo</span></h1><div class="pill" id="pill"><i class="dot"></i><span id="state">LÄDT …</span></div></header>
 <div class="banner" id="banner"></div>
 <nav id="tabs"></nav>
 <div class="pages" id="pages"></div>
+<section class="detail" id="detail" hidden></section>
 <footer id="foot">Nur lesend · Werte wie am Stream Deck Neo</footer>
 <script nonce="${nonce}">
 "use strict";
-const NAMES=["AGENTS","LOCAL","OPS"],$=id=>document.getElementById(id);let data=null,lastOk=0,current=0,timer=null,failed=false;
+const NAMES=["AGENTS","LOCAL","OPS"],$=id=>document.getElementById(id),deleteToken=${JSON.stringify(deleteToken)};let data=null,lastOk=0,current=0,timer=null,failed=false,selected=null,range=24;
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 const short=(s,n)=>s.length>n?s.slice(0,n-1)+"…":s;
 const when=t=>new Date(t).toLocaleString("de-DE",{timeZone:"Europe/Berlin",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}).replace(",","");
 const clock=t=>new Date(t).toLocaleTimeString("de-DE",{timeZone:"Europe/Berlin",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 function key(t){
- const k=el("div","key"+(t.quality==="stale"?" stale":""));k.style.setProperty("--c",t.color);k.append(el("div","t",t.title));
+ const k=el("div","key"+(t.quality==="stale"?" stale":""));k.tabIndex=0;k.setAttribute("role","button");k.setAttribute("aria-label",t.title+" Verlauf öffnen");k.onclick=()=>openDetail(t);k.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openDetail(t);}};k.style.setProperty("--c",t.color);k.append(el("div","t",t.title));
  if(t.quota){k.classList.add("q");if(t.quota.stale)k.classList.add("old");for(const w of t.quota.windows){const r=el("div","row");r.append(el("div","cap",w.label+" "+(w.remaining===null?"REST —":"REST "+Math.round(w.remaining)+" %")));const b=el("div","bar"),i=el("i");i.style.width=(w.remaining===null?0:w.remaining)+"%";b.append(i);r.append(b,el("div","r","R "+(w.reset?when(w.reset):"—")));k.append(r);}
   const f=el("div","f",t.quota.stale?"STALE":t.quota.measured?"REST / QUOTA":"— / UNAVAILABLE");if(t.quota.stale)f.style.color="var(--amber)";k.append(f);return k;}
  const ls=el("div","ls");for(const line of t.lines){const s=short(line,16);ls.append(el("div","l "+(s.length>12?"x":s.length>9?"m":"s"),s));}
  k.append(ls,el("div","f",short(t.footer,20)));if(t.quality==="stale")k.append(el("div","st","STALE"));return k;
 }
 function show(i,smooth){current=(i+3)%3;const p=$("pages");p.scrollTo({left:current*p.clientWidth,behavior:smooth?"smooth":"auto"});tabs();}
+async function openDetail(t){selected=t;$("pages").hidden=true;$("tabs").hidden=true;$("detail").hidden=false;await drawDetail();window.scrollTo(0,0);}
+function closeDetail(){selected=null;$("detail").hidden=true;$("pages").hidden=false;$("tabs").hidden=false;show(current,false);}
+async function drawDetail(){
+ const root=$("detail");root.replaceChildren();const back=el("button","","← Zurück");back.onclick=closeDetail;root.append(back);const panel=el("div","panel");root.append(panel);panel.append(el("h2","",selected.title+" · Verlauf"));
+ const filters=el("div","");for(const [h,label] of [[1,"1 Stunde"],[24,"24 Stunden"],[168,"7 Tage"],[720,"30 Tage"]]){const b=el("button","",label+(range===h?" ✓":""));b.onclick=()=>{range=h;drawDetail();};filters.append(b);}panel.append(filters);
+ try{const r=await fetch("/api/history/"+encodeURIComponent(selected.module)+"?hours="+range,{cache:"no-store"});if(!r.ok)throw Error();const d=await r.json();const rows=d.rows;panel.append(el("p","muted",rows.length?"Aufzeichnung seit "+when(rows[rows.length-1].at)+" · Lücken bedeuten fehlende Messungen.":"Für diesen Zeitraum liegen noch keine Aufzeichnungen vor."));
+ const points=rows.slice().reverse().flatMap(x=>x.points.map(p=>({at:x.at,...p})));const names=[...new Set(points.map(p=>p.name))];
+ for(const name of names){const vals=points.filter(p=>p.name===name);if(!vals.length)continue;const lo=Math.min(...vals.map(p=>p.value)),hi=Math.max(...vals.map(p=>p.value));panel.append(el("h3","",name+" · "+vals[vals.length-1].value.toFixed(1)+" "+vals[0].unit));const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg"),line=document.createElementNS(ns,"path");svg.setAttribute("viewBox","0 0 600 180");line.setAttribute("fill","none");line.setAttribute("stroke","#63d7e5");line.setAttribute("stroke-width","3");const begin=Date.now()-range*3600000,gap=Math.max(180000,Math.ceil(range*60/4800)*120000);line.setAttribute("d",vals.map((p,i)=>(!i||p.at-vals[i-1].at>gap?"M":"L")+Math.max(0,Math.min(600,(p.at-begin)/(range*3600000)*600))+" "+(160-(p.value-lo)/(hi-lo||1)*140)).join(" "));svg.append(line);panel.append(svg,el("p","muted","Minimum "+lo.toFixed(1)+" · Maximum "+hi.toFixed(1)+" "+vals[0].unit));}
+ const del=el("button","danger","Historie löschen");del.onclick=async()=>{if(!confirm("Gesamte gespeicherte Historie für "+selected.title+" löschen?"))return;const r=await fetch("/api/history/"+encodeURIComponent(selected.module),{method:"DELETE",headers:{"X-OSCA-Token":deleteToken}});if(!r.ok){alert("Löschen nicht möglich.");return;}drawDetail();};panel.append(del);
+ for(const row of rows.slice(0,100)){const item=el("div","entry");item.append(el("strong","",when(row.at)+" · "+row.quality.toUpperCase()),el("div","",row.summary.lines.join(" · ")));const b=el("button","danger","Eintrag löschen");b.onclick=async()=>{if(!confirm("Diesen Eintrag löschen?"))return;const r=await fetch("/api/history/"+encodeURIComponent(selected.module)+"/"+row.id,{method:"DELETE",headers:{"X-OSCA-Token":deleteToken}});if(r.ok)drawDetail();else alert("Löschen nicht möglich.");};item.append(b);panel.append(item);}
+ }catch{panel.append(el("p","muted","Verlauf derzeit nicht erreichbar."));}
+}
 function tabs(){const n=$("tabs");n.replaceChildren(...NAMES.map((name,i)=>{const b=el("button",(i===current?"on":"")+(data&&data.device.connected&&data.device.visiblePage===i?" device":""),name);b.type="button";b.setAttribute("aria-label",name+(data&&data.device.visiblePage===i?", gerade am Neo sichtbar":""));b.onclick=()=>show(i,true);return b;}));}
 function render(){
  const sum=data.summary,pre=sum.complete?"":"≥",p=$("pages"),x=p.scrollLeft;
@@ -111,19 +126,25 @@ addEventListener("resize",()=>{show(current,false);fit();});document.addEventLis
 tabs();loop();
 </script></body></html>`;}
 
-export interface MobileOptions {port:number;upstream:string;cacheMs?:number}
+export interface MobileOptions {port:number;upstream:string;cacheMs?:number;history?:History}
 export function createMobileServer(o:MobileOptions,fetchStatus:()=>Promise<any>=()=>fetchJson(`${o.upstream}/api/status`,3000,4*1024*1024)):http.Server{
- let cached:{at:number;body:string;code:number}|null=null;let icon:Buffer|null=null;const ttl=o.cacheMs??2000;
+ let cached:{at:number;body:string;code:number}|null=null;let icon:Buffer|null=null;const ttl=o.cacheMs??2000;const deleteToken=randomBytes(32).toString("hex");
  const api=async()=>{if(cached&&Date.now()-cached.at<ttl)return cached;try{cached={at:Date.now(),code:200,body:JSON.stringify(mobileView(await fetchStatus()))};}catch{cached={at:Date.now(),code:503,body:JSON.stringify({ok:false,error:"Neo-Dienst nicht erreichbar"})};}return cached;};
  return http.createServer((req,res)=>{void (async()=>{
-  if(!allowedHost(req.headers.host,o.port)||(req.method!=="GET"&&req.method!=="HEAD")){res.writeHead(403);res.end();return;}
+  if(!allowedHost(req.headers.host,o.port)||!['GET','HEAD','DELETE'].includes(req.method||'')){res.writeHead(403);res.end();return;}
   res.setHeader("Cache-Control","no-store");res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","no-referrer");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cross-Origin-Resource-Policy","same-origin");
-  const path=new URL(req.url||"/","http://localhost").pathname;
+  const url=new URL(req.url||"/","http://localhost"),path=url.pathname;
   try{
+   const match=/^\/api\/history\/([A-Za-z]+)(?:\/(\d+))?$/.exec(path);
+   if(match){const module=match[1];if(!modules.has(module)||!o.history){res.writeHead(404);res.end();return;}
+    if(req.method==="DELETE"){let origin:URL;try{origin=new URL(String(req.headers.origin||""));}catch{res.writeHead(403);res.end();return;}if(origin.host!==req.headers.host||req.headers['x-osca-token']!==deleteToken||!['http:','https:'].includes(origin.protocol)){res.writeHead(403);res.end();return;}const result=match[2]?o.history.removePoint(module,Number(match[2])):o.history.remove(module);res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify({ok:true,deleted:Number(result.changes)}));return;}
+    if(match[2]){res.writeHead(404);res.end();return;}const h=Number(url.searchParams.get('hours')||24);if(![1,24,168,720].includes(h)){res.writeHead(400);res.end();return;}res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==='HEAD'?undefined:JSON.stringify({ok:true,rows:o.history.list(module,Date.now()-h*3600000)}));return;
+   }
+   if(req.method==='DELETE'){res.writeHead(404);res.end();return;}
    if(path==="/api/mobile"){const r=await api();res.writeHead(r.code,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==="HEAD"?undefined:r.body);return;}
    if(path==="/icon.png"||path==="/apple-touch-icon.png"){icon??=await sharp(Buffer.from(ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:icon);return;}
    if(path!=="/"){res.writeHead(404);res.end();return;}
-   const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:mobileHtml(nonce));
+   const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:mobileHtml(nonce,deleteToken));
   }catch{if(!res.headersSent)res.writeHead(503);res.end();}
  })();});
 }
