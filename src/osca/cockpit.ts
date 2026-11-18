@@ -59,10 +59,22 @@ export function parseSensorLine(line:string):SensorFrame|null{
 // llama-server lines in the Ollama log: "prompt processing ... progress = 0.81, t = 5.21 s / 850.47 tokens per second",
 // "n_gen = 5853, tg = 16.79 t/s, tg_3s = 16.64 t/s", "stop processing", "all slots are idle". The lines carry no timestamp,
 // so the file's modification time decides whether a reading/writing phase is still current.
+// The input rate is the momentary rate between two consecutive progress lines of the same task (Δtokens / Δtime).
+// The rate printed by llama-server is an average since the start of the prompt and includes reused cache, so it is
+// only used as a fallback when neither a previous line of that task nor its cache size is available.
 export function parseLlamaLog(raw:string,modifiedAt:number,now=Date.now()):LlmState{
  let phase:LlmPhase="unknown",tps:number|null=null,lastTps:number|null=null,prefillTps:number|null=null,progress:number|null=null;
+ let prev:{task:string;n:number;t:number}|null=null,cached:{task:string;n:number}|null=null;
  for(const line of raw.split("\n")){
   let m:RegExpExecArray|null;
+  if((m=/task (\d+) \| cached n_tokens = (\d+)/.exec(line))){cached={task:m[1],n:Number(m[2])};continue;}
+  if((m=/task (\d+) \| prompt processing, n_tokens =\s*(\d+), progress = ([\d.]+), t =\s*([\d.]+) s \/\s*([\d.]+) tokens per second/.exec(line))){
+   const task=m[1],n=Number(m[2]),t=Number(m[4]);phase="reading";progress=Number(m[3]);tps=null;
+   // First line of a task: subtract the reused cache reported just before ("cached n_tokens").
+   const base=prev&&prev.task===task?prev:cached&&cached.task===task?{n:cached.n,t:0}:null;
+   // The final line (progress 1.00) jumps to the end position and gives no real rate; keep the previous value then.
+   const inst=base&&t>base.t&&n>base.n&&progress<1?(n-base.n)/(t-base.t):null;
+   prefillTps=inst!==null&&inst<5000?Math.round(inst*10)/10:prev&&prev.task===task?prefillTps:Number(m[5]);prev={task,n,t};continue;}
   if((m=/prompt processing,.*progress = ([\d.]+).*?\/\s*([\d.]+) tokens per second/.exec(line))){phase="reading";progress=Number(m[1]);prefillTps=Number(m[2]);tps=null;continue;}
   if((m=/n_gen =\s*\d+, tg =\s*([\d.]+) t\/s(?:, tg_\d+s =\s*([\d.]+) t\/s)?/.exec(line))){phase="writing";const now3=Number(m[2]??m[1]);tps=Number.isFinite(now3)?now3:null;lastTps=Number(m[1]);progress=null;continue;}
   if(/stop processing|all slots are idle/.test(line)){phase="idle";tps=null;progress=null;}

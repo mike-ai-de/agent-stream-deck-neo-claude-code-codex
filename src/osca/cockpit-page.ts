@@ -257,7 +257,7 @@ function frame(now){
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
-  splitGauge($("gTps"),{p:anim.split,label:"IN·OUT",text:f&&f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps.toFixed(1):f&&f.llm.phase==="reading"&&f.llm.prefillTps!=null?String(Math.round(f.llm.prefillTps)):"IDLE"});
+  splitGauge($("gTps"),{p:anim.split,label:"IN·OUT",text:f&&f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps.toFixed(1):f&&f.llm.phase==="reading"?(f.llm.prefillTps!=null?String(Math.round(f.llm.prefillTps)):"READ"):"IDLE"});
   gauge($("gTemp"),{min:30,max:110,caution:85,warning:95,value:f&&f.temp.max!=null||sweep>0?anim.temp:null,text:f&&f.temp.max!=null?anim.temp.toFixed(1):"—",label:"CHIP",unit:"°C",labels:true});
   vu($("vu"),now,dt);spark($("sCpu"),series("cpu"),0,100,C.green,false);spark($("sGpu"),series("gpu"),0,100,C.green,false);spark2($("sTps"),series("tps"),series("tin"));spark($("sTemp"),series("temp"),30,110,C.green,false);
  }

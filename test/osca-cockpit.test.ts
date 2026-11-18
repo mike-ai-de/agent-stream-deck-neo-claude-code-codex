@@ -32,6 +32,16 @@ describe("cockpit LLM log",()=>{
   "slot print_timing: id  0 | task 7 | n_gen =   5853, tg =  16.79 t/s, tg_3s =  16.64 t/s"].join("\n");
  it("detects writing with the current token rate",()=>{expect(parseLlamaLog(log,now,now)).toEqual({phase:"writing",tps:16.64,lastTps:16.79,prefillTps:850.47,progress:null});});
  it("detects reading the prompt",()=>{expect(parseLlamaLog(log.split("\n")[0],now,now)).toMatchObject({phase:"reading",progress:0.81,tps:null});});
+ it("uses the momentary input rate between two progress lines of the same task",()=>{
+  const p=(task:number,n:number,t:number,avg:number)=>`slot print_timing: id  0 | task ${task} | prompt processing, n_tokens =  ${n}, progress = 0.50, t =  ${t} s / ${avg} tokens per second`;
+  expect(parseLlamaLog([p(9,50176,85.26,588.5),p(9,51200,87.61,584.39)].join("\n"),now,now).prefillTps).toBe(435.7);
+  expect(parseLlamaLog(p(9,51200,87.61,584.39),now,now).prefillTps).toBe(584.39); // single line: fallback average
+  expect(parseLlamaLog([p(8,1000,1,1000),p(9,2048,1,2048)].join("\n"),now,now).prefillTps).toBe(2048); // new task: no cross-task delta
+  const cache="slot   operator(): id  0 | task 9 | cached n_tokens = 3072, memory_seq_rm [3072, end)";
+  expect(parseLlamaLog([cache,p(9,4096,3.85,1062.56)].join("\n"),now,now).prefillTps).toBe(266); // first line without reused cache
+  const fin=`slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  31755, progress = 1.00, t =  60.12 s / 528.1 tokens per second`;
+  expect(parseLlamaLog([p(9,30735,60,512.2),fin].join("\n"),now,now).prefillTps).toBe(512.2); // final jump ignored
+ });
  it("falls back to idle when the log went quiet or the slot was released",()=>{
   expect(parseLlamaLog(log,now-60000,now).phase).toBe("idle");
   const done=parseLlamaLog(log+"\nslot      release: id  0 | task 7 | stop processing: n_tokens = 93, truncated = 0",now,now);
