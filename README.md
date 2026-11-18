@@ -51,7 +51,7 @@ Unter `/cockpit` liefert der Handy-Dienst ein animiertes Glascockpit im Stil ein
 
 - **Lampen:** Claude, Codex, Hermes und Orca·Pi leuchten grün, solange sie arbeiten; die LLM-Zeile zeigt das geladene Ollama-Modell und die Phase READING/WRITING.
 - **Instrumente:** CPU und GPU (GPU ohne Warnbereich, Volllast ist gewollt), 18 CPU-Kerne als LED-Pegel mit Spitzenwert, Ausgabe-Token/s, Chip-Temperatur mit macOS-Hitzestufe, Swap.
-- **IN·OUT:** geteilte Nadel, Mitte = Leerlauf, links Einlesetempo (0–1000 T/S, Magenta), rechts Schreibtempo (0–40 T/S, Cyan); gespiegelte Verlaufskurve.
+- **IN·OUT:** geteilte Nadel, Mitte = Leerlauf, links Einlesetempo (0–1000 T/S, Magenta), rechts Schreibtempo (0–40 T/S, Cyan); gespiegelte Verlaufskurve. Darunter „PEAK OUT / PEAK IN“: Spitzenwerte im gewählten Flight-Recorder-Zeitraum (1M aus den Live-Werten, sonst aus den Sekundenwerten des Recorders).
 - **Token Totalizer:** rollende Zählwerke für Input und Output aus dem eigenständigen OSCA Token Ledger (`/Volumes/OSCA-DATA/Projects/OSCA/Token-Ledger`) (`127.0.0.1:9466`), Zeitraum 1H / 24H / MONTH / YEAR / TOTAL seit der OSCA-Initialisierung am 25.10.2026. Läuft der Ledger nicht, zeigt das Feld „LEDGER OFFLINE“.
 - **Fuel:** Claude-Kontingent 5h/7d und Codex 7d als Tankanzeige mit Reset-Zeitpunkt.
 - **EICAS:** Warnzeile für Temperatur, Swap/Speicherdruck, CPU-Last ab 90 %, knappe Kontingente und fehlende Quellen.

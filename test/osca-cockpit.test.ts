@@ -103,7 +103,9 @@ describe("token ledger integration",()=>{
  it("records the input rate while the prompt is read",()=>{
   const r=new FlightRecorder(":memory:");
   r.record(cockpitFrame({sensors:sensors(),llm:{phase:"reading",tps:null,lastTps:16,prefillTps:640,progress:0.4},orca:null,status:status(),now}),now);
-  expect(r.series("1h",240,now+1000).points[0].slice(3)).toEqual([0,70,640]);r.close();
+  expect(r.series("1h",240,now+1000).points[0].slice(3)).toEqual([0,70,640]);
+  r.record(cockpitFrame({sensors:sensors(),llm:{phase:"writing",tps:18.4,lastTps:18,prefillTps:640,progress:null},orca:null,status:status(),now:now+2000}),now+2000);
+  expect(r.series("1h",240,now+3000).peak).toEqual({out:18.4,in:640});r.close();
  });
 });
 

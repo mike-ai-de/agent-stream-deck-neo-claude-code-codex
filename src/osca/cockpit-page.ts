@@ -77,6 +77,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
 .sysr.stale .k{color:var(--amber)}
 .rec{display:flex;align-items:center;justify-content:flex-end;padding:6px 8px}.rec .ttl{position:static;flex:1}.rng{display:flex;gap:4px}.rng button{font:800 10px/1 -apple-system,sans-serif;letter-spacing:.12em;padding:7px 9px;border-radius:5px;background:#0b0f14;border:1px solid #1c2530;color:#7c8896}.rng button.on{color:#001b08;background:var(--green);border-color:var(--green);box-shadow:0 0 8px rgba(43,234,108,.6)}
 .wlink{display:block;margin-top:12px;padding:11px;text-align:center;border-radius:7px;border:1px solid rgba(51,224,255,.5);color:var(--cyan);text-decoration:none;font-size:11px;font-weight:800;letter-spacing:.14em}
+.sub.peak{margin-top:4px}.sub.peak b{color:var(--cyan)}.sub.peak span+span b{color:var(--magenta)}
 .trng{display:flex;gap:4px;position:absolute;top:5px;right:8px}.trng button{font:800 9px/1 -apple-system,sans-serif;letter-spacing:.1em;padding:5px 7px;border-radius:4px;background:#0b0f14;border:1px solid #1c2530;color:#7c8896}.trng button.on{color:#00171c;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 8px rgba(51,224,255,.5)}
 .tot{padding-top:24px;display:grid;gap:4px}.odo{display:flex;align-items:center;gap:10px}.odo .k{width:34px;font-size:11px;font-weight:800;letter-spacing:.12em}.odo .k.in{color:var(--magenta)}.odo .k.out{color:var(--cyan)}
 .digits{display:flex;gap:2px;align-items:flex-end}.dg{width:.74em;height:1.25em;overflow:hidden;border-radius:3px;border:1px solid #25303b;background:linear-gradient(180deg,#05080b 0%,#1a222b 48%,#1a222b 52%,#05080b 100%);font:600 22px "SF Mono",ui-monospace,Menlo,monospace;color:#f2f6f9;box-shadow:inset 0 2px 4px rgba(0,0,0,.8)}
@@ -98,7 +99,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="eng"><div><canvas class="g" id="gCpu"></canvas><canvas class="spark" id="sCpu"></canvas></div><div><canvas class="g" id="gGpu"></canvas><canvas class="spark" id="sGpu"></canvas></div></div>
   <canvas class="vu" id="vu"></canvas><div class="sub"><span>CPU CORES</span><span><b class="mono" id="coreN">—</b></span></div></section>
  <section class="panel"><div class="row2">
-  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div></div>
+  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK · LAST MINUTE</span></div></div>
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
@@ -163,13 +164,11 @@ function splitGauge(cv,o){
  var labels={"-1":"1000","-0.5":"500","0":"0","0.5":"20","1":"40"};
  for(var i=0;i<=8;i++){var q=-1+i/4,t=ang(q),big=i%2===0;x.beginPath();x.moveTo(cx+Math.cos(t)*R*0.80,cy+Math.sin(t)*R*0.80);x.lineTo(cx+Math.cos(t)*R*(big?0.70:0.75),cy+Math.sin(t)*R*(big?0.70:0.75));x.strokeStyle=q===0?"#ffffff":"#c9d2db";x.lineWidth=q===0?2.2:big?1.6:1;x.stroke();
   if(big){x.fillStyle=q<0?"#c27fb5":q>0?"#7fc3cf":"#9aa6b2";x.font="600 "+Math.max(8,R*0.13)+"px -apple-system,sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(labels[String(q)],cx+Math.cos(t)*R*0.56,cy+Math.sin(t)*R*0.56);}}
- x.fillStyle="#c27fb5";x.font="800 "+Math.max(8,R*0.12)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="middle";x.fillText("IN",cx-R*0.98,cy+R*0.92);
- x.fillStyle="#7fc3cf";x.textAlign="right";x.fillText("OUT",cx+R*0.98,cy+R*0.92);
  x.save();x.shadowColor="rgba(255,255,255,.8)";x.shadowBlur=8;x.beginPath();x.moveTo(cx+Math.cos(na+Math.PI/2)*R*0.035,cy+Math.sin(na+Math.PI/2)*R*0.035);x.lineTo(cx+Math.cos(na)*R*0.97,cy+Math.sin(na)*R*0.97);x.lineTo(cx+Math.cos(na-Math.PI/2)*R*0.035,cy+Math.sin(na-Math.PI/2)*R*0.035);x.closePath();x.fillStyle="#fff";x.fill();x.restore();
  x.beginPath();x.arc(cx,cy,R*0.07,0,Math.PI*2);x.fillStyle="#1a232d";x.fill();x.strokeStyle="#c9d2db";x.lineWidth=1;x.stroke();
  var bw=R*1.16,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;x.fillStyle="#000";x.strokeStyle=col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
  x.fillStyle=col;x.textBaseline="middle";x.font="600 "+(bh*0.62)+"px 'SF Mono',ui-monospace,Menlo,monospace";
- if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.76,by+bh*0.56);}
+ if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{x.save();x.font="800 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText(p<0?"IN":"OUT",bx+bw*0.05,by+bh*0.56);x.restore();x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.76,by+bh*0.56);}
  x.fillStyle="#e9eef3";x.font="800 "+Math.max(11,R*0.19)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,2);
 }
 // Mirrored trend: output above the centre line (cyan), input below (magenta).
@@ -216,9 +215,13 @@ function spark(cv,arr,min,max,color,auto){
  var gr=x.createLinearGradient(0,0,0,h);gr.addColorStop(0,color+"40");gr.addColorStop(1,color+"00");x.fillStyle=gr;
  var seg=[];pts.concat([null]).forEach(function(p){if(p){seg.push(p);return;}if(seg.length>1){x.beginPath();x.moveTo(seg[0][0],h);seg.forEach(function(q){x.lineTo(q[0],q[1]);});x.lineTo(seg[seg.length-1][0],h);x.closePath();x.fill();}seg=[];});
 }
-var range="live",recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]},recTimer=null;
+var range="live",recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]},recTimer=null,recPeak={out:null,in:null};
 function loadRange(){if(range==="live")return;fetch("/api/cockpit/history?range="+range,{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(d){if(!d||!d.ok)return;var rec={cpu:[],gpu:[],tps:[],temp:[],tin:[]},prev=null;
- d.points.forEach(function(p){if(prev!==null&&p[0]-prev>d.step*1.5){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p.length>5?p[5]:null);});recorded=rec;}).catch(function(){});}
+ d.points.forEach(function(p){if(prev!==null&&p[0]-prev>d.step*1.5){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p.length>5?p[5]:null);});recorded=rec;recPeak=d.peak||{out:null,in:null};peaks();}).catch(function(){});}
+function peaks(){var mx=function(a){var v=a.filter(function(x){return x!=null&&x>0;});return v.length?Math.max.apply(null,v):null;};
+ var po=range==="live"?mx(hist.tps):recPeak.out,pi=range==="live"?mx(hist.tin):recPeak.in;
+ $("pkOut").textContent=po!=null&&po>0?po.toFixed(1)+" T/S":"—";$("pkIn").textContent=pi!=null&&pi>0?Math.round(pi).toLocaleString("de-DE")+" T/S":"—";
+ $("pkR").textContent="PEAK · "+({live:"LAST MINUTE","1h":"LAST HOUR","24h":"LAST 24 H","7d":"LAST 7 DAYS","30d":"LAST 30 DAYS"})[range];}
 function series(k){return range==="live"?hist[k]:recorded[k];}
 function setLamp(id,lamp,sub){var el=$("l-"+id);el.className="lamp "+lamp;$("s-"+id).textContent=sub;}
 function pad(n){return (n<10?"0":"")+n;}
@@ -250,7 +253,7 @@ function frame(now){
  var sweep=Math.max(0,1-(now-boot)/1800),sv=sweep>0?Math.sin(Math.min(1,(now-boot)/900)*Math.PI/2)*(sweep>0.5?1:sweep*2):0;
  var f=data,cpu=f&&f.live.cpu!=null?f.live.cpu:0,gpu=f&&f.live.gpu!=null?f.live.gpu:0,tps=f&&f.llm.tps!=null?f.llm.tps:0,temp=f&&f.temp.max!=null?f.temp.max:30;
  anim.cpu=lerp(anim.cpu,sweep>0?100*sv:cpu,k);anim.gpu=lerp(anim.gpu,sweep>0?100*sv:gpu,k);anim.tps=lerp(anim.tps,sweep>0?40*sv:tps,kt);anim.temp=lerp(anim.temp,sweep>0?30+80*sv:temp,kt);var split=f&&f.llm.phase==="writing"&&f.llm.tps!=null?Math.min(1,f.llm.tps/40):f&&f.llm.phase==="reading"&&f.llm.prefillTps!=null?-Math.min(1,f.llm.prefillTps/1000):0;anim.split=lerp(anim.split,sweep>0?(sv*2-1)*(sweep>0.5?1:sweep*2):split,kt);
- if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);add("tps",f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps:0);add("temp",f.temp.max);add("tin",f.llm.phase==="reading"&&f.llm.prefillTps!=null?f.llm.prefillTps:0);}}
+ if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);add("tps",f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps:0);add("temp",f.temp.max);add("tin",f.llm.phase==="reading"&&f.llm.prefillTps!=null?f.llm.prefillTps:0);if(range==="live")peaks();}}
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
@@ -279,7 +282,7 @@ function sysView(){fetch("/api/mobile",{cache:"no-store"}).then(function(r){retu
  $("sysT").textContent="SYSTEM STATUS · v"+m.version;wall();}).catch(function(){});}
 var sysTimer=null;
 Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(b){b.onclick=function(){tokRange=b.getAttribute("data-t");Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(o){o.className=o===b?"on":"";});totalizer();};});
-Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]};clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
+Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]};recPeak={out:null,in:null};peaks();clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
 $("bSys").onclick=function(){$("pfd").hidden=true;$("pfd").style.display="none";$("sys").style.display="block";$("bSys").className="on";$("bPfd").className="";sysView();sysTimer=setInterval(sysView,5000);wall();};
 $("bPfd").onclick=function(){$("pfd").hidden=false;$("pfd").style.display="";$("sys").style.display="none";$("bPfd").className="on";$("bSys").className="";clearInterval(sysTimer);boot=performance.now();wall();};
 // Big-screen mode (e.g. Mac Studio display): scale the whole deck to fill the window, re-rendering canvases at full resolution.
