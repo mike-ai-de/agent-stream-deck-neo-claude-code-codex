@@ -1,6 +1,7 @@
 import http from "node:http";import {randomBytes} from "node:crypto";import sharp from "sharp";
 import {PAGES,PAGE_NAMES,counts,type Snapshot,type Quality} from "./model.js";import {tile} from "./view.js";import {quotaStale} from "./quota.js";import {fetchJson} from "./io.js";
 import {History,modules} from "./history.js";
+import {CockpitHub} from "./cockpit.js";import {cockpitHtml} from "./cockpit-page.js";import {RANGES} from "./recorder.js";import {widgetPage,widgetScript} from "./widget.js";
 
 // Read-only mobile status page. Runs as its own process next to the HID service, reads 127.0.0.1:9463/api/status
 // and passes on only what the Neo keys show: no session IDs, paths, PIDs or hashes.
@@ -22,13 +23,16 @@ export function allowedHost(host:string|undefined,port:number):boolean{if(!host)
 
 const ICON=`<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="180" height="180" fill="#050a12"/>${[0,1,2,3,4,5,6,7].map(i=>`<rect x="${18+(i%4)*38}" y="${40+Math.floor(i/4)*38}" width="30" height="30" rx="6" fill="#101a29" stroke="${["#63d7e5","#72e6af","#72e6af","#63d7e5","#63d7e5","#63d7e5","#ffbc66","#96a4ba"][i]}" stroke-opacity=".8" stroke-width="2"/>`).join("")}<rect x="48" y="124" width="84" height="18" rx="5" fill="#0b1321" stroke="#63d7e5" stroke-opacity=".5"/></svg>`;
 
-export function mobileHtml(nonce:string,deleteToken=""):string{return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#050a12"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="OSCA Neo"><link rel="apple-touch-icon" href="/icon.png"><title>OSCA Neo</title>
+const COCKPIT_ICON=`<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="180" height="180" fill="#000"/><circle cx="90" cy="96" r="58" fill="none" stroke="#1a232d" stroke-width="12"/><path d="M48.99 137.01A58 58 0 1 1 131.01 137.01" fill="none" stroke="#2bea6c" stroke-width="5" stroke-dasharray="230 400"/><path d="M131.01 137.01A58 58 0 0 0 146 96" fill="none" stroke="#ff3b3b" stroke-width="6"/><line x1="90" y1="96" x2="130" y2="62" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="90" cy="96" r="7" fill="#fff"/><text x="90" y="158" font-family="Helvetica,Arial" font-weight="800" font-size="20" fill="#33e0ff" text-anchor="middle" letter-spacing="3">OSCA</text></svg>`;
+
+export function mobileHtml(nonce:string,deleteToken="",deck=false):string{return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#050a12"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="OSCA Neo"><link rel="apple-touch-icon" href="/icon.png"><title>OSCA Neo</title>
 <style nonce="${nonce}">
 :root{--cyan:#63d7e5;--green:#72e6af;--amber:#ffbc66;--red:#ff7c88;--gray:#96a4ba;--key:#101a29;--bg:#050a12;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:#ecf1fa;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;-webkit-text-size-adjust:100%}
 body{padding:calc(env(safe-area-inset-top) + 10px) 0 calc(env(safe-area-inset-bottom) + 14px)}
 header{max-width:792px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left))}
+.back{color:var(--cyan);text-decoration:none;font-size:13px;font-weight:800;letter-spacing:.12em;padding:7px 11px;border-radius:999px;background:#0b1321;border:1px solid rgba(99,215,229,.45)}header h1{flex:1}
 h1{margin:0;font-size:20px;font-weight:800;letter-spacing:.02em}h1 span{color:var(--cyan)}
 .pill{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:#0b1321;border:1px solid #1d2b3f;font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--gray)}
@@ -63,7 +67,7 @@ footer{margin:18px max(16px,env(safe-area-inset-left)) 0;text-align:center;font-
 .banner.on{display:block}.banner.amber{background:rgba(255,188,102,.1);color:var(--amber);border-color:rgba(255,188,102,.35)}
 .key{cursor:pointer}.pages[hidden],nav[hidden]{display:none}.detail{max-width:760px;margin:0 auto;padding:0 16px}.detail[hidden]{display:none}.detail button{background:#102336;color:#dffaff;border:1px solid #315468;border-radius:9px;padding:10px;margin:4px}.detail .danger{border-color:#a44b52;color:#ffb7bb}.detail .panel{background:#0b1321;border:1px solid #24384c;border-radius:14px;padding:16px}.detail svg{width:100%;height:180px;background:#101a29;border-radius:8px}.detail .entry{border-top:1px solid #263749;padding:10px 0;font-size:14px}.detail .muted{color:#a8b8cd;font-size:13px}
 </style></head><body>
-<header><h1>OSCA <span>Neo</span></h1><div class="pill" id="pill"><i class="dot"></i><span id="state">LÄDT …</span></div></header>
+<header>${deck?`<a class="back" href="/cockpit">‹ DECK</a>`:""}<h1>OSCA <span>Neo</span></h1><div class="pill" id="pill"><i class="dot"></i><span id="state">LÄDT …</span></div></header>
 <div class="banner" id="banner"></div>
 <nav id="tabs"></nav>
 <div class="pages" id="pages"></div>
@@ -126,9 +130,9 @@ addEventListener("resize",()=>{show(current,false);fit();});document.addEventLis
 tabs();loop();
 </script></body></html>`;}
 
-export interface MobileOptions {port:number;upstream:string;cacheMs?:number;history?:History}
+export interface MobileOptions {port:number;upstream:string;cacheMs?:number;history?:History;cockpit?:CockpitHub;maxStreams?:number}
 export function createMobileServer(o:MobileOptions,fetchStatus:()=>Promise<any>=()=>fetchJson(`${o.upstream}/api/status`,3000,4*1024*1024)):http.Server{
- let cached:{at:number;body:string;code:number}|null=null;let icon:Buffer|null=null;const ttl=o.cacheMs??2000;const deleteToken=randomBytes(32).toString("hex");
+ let cached:{at:number;body:string;code:number}|null=null;let icon:Buffer|null=null;let cockpitIcon:Buffer|null=null;const ttl=o.cacheMs??2000;const deleteToken=randomBytes(32).toString("hex");
  const api=async()=>{if(cached&&Date.now()-cached.at<ttl)return cached;try{cached={at:Date.now(),code:200,body:JSON.stringify(mobileView(await fetchStatus()))};}catch{cached={at:Date.now(),code:503,body:JSON.stringify({ok:false,error:"Neo-Dienst nicht erreichbar"})};}return cached;};
  return http.createServer((req,res)=>{void (async()=>{
   if(!allowedHost(req.headers.host,o.port)||!['GET','HEAD','DELETE'].includes(req.method||'')){res.writeHead(403);res.end();return;}
@@ -141,10 +145,24 @@ export function createMobileServer(o:MobileOptions,fetchStatus:()=>Promise<any>=
     if(match[2]){res.writeHead(404);res.end();return;}const h=Number(url.searchParams.get('hours')||24);if(![1,24,168,720].includes(h)){res.writeHead(400);res.end();return;}res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==='HEAD'?undefined:JSON.stringify({ok:true,rows:o.history.list(module,Date.now()-h*3600000)}));return;
    }
    if(req.method==='DELETE'){res.writeHead(404);res.end();return;}
+   if(path==="/api/cockpit"&&o.cockpit){res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==="HEAD"?undefined:JSON.stringify(o.cockpit.frame()));return;}
+   if(path==="/api/cockpit/history"&&o.cockpit?.recorder){const range=url.searchParams.get("range")||"";if(!RANGES[range]){res.writeHead(400);res.end();return;}res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==="HEAD"?undefined:JSON.stringify({ok:true,...o.cockpit.recorder.series(range)}));return;}
+   if((path==="/widget"||path==="/widget.js")&&o.cockpit){const host=String(req.headers.host);const base=(/\.ts\.net(:\d+)?$/i.test(host)?"https://":"http://")+host;const script=widgetScript(base);
+    if(path==="/widget.js"){res.writeHead(200,{"Content-Type":"text/plain; charset=utf-8"});res.end(req.method==="HEAD"?undefined:script);return;}
+    const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:widgetPage(nonce,script));return;}
+   if(path==="/manifest.webmanifest"&&o.cockpit){res.writeHead(200,{"Content-Type":"application/manifest+json","Cache-Control":"max-age=3600"});res.end(req.method==="HEAD"?undefined:JSON.stringify({name:"OSCA – Operating System · Core · Agent",short_name:"OSCA",start_url:"/cockpit",scope:"/",display:"standalone",orientation:"any",background_color:"#000000",theme_color:"#000000",icons:[{src:"/cockpit-icon.png",sizes:"180x180",type:"image/png"}]}));return;}
+   if(path==="/api/cockpit/stream"&&o.cockpit){
+    if(req.method!=="GET"||o.cockpit.subscribers>=(o.maxStreams??8)){res.writeHead(503);res.end();return;}
+    res.writeHead(200,{"Content-Type":"text/event-stream; charset=utf-8","Connection":"keep-alive","X-Accel-Buffering":"no"});res.flushHeaders?.();
+    const hub=o.cockpit;const send=(f:unknown)=>{res.write("data: "+JSON.stringify(f)+"\n\n");};send(hub.frame());const off=hub.subscribe(send);
+    const ping=setInterval(()=>res.write(": ping\n\n"),15000);req.on("close",()=>{off();clearInterval(ping);});return;
+   }
+   if(path==="/cockpit"&&o.cockpit){const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; manifest-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:cockpitHtml(nonce));return;}
+   if(path==="/cockpit-icon.png"){cockpitIcon??=await sharp(Buffer.from(COCKPIT_ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:cockpitIcon);return;}
    if(path==="/api/mobile"){const r=await api();res.writeHead(r.code,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==="HEAD"?undefined:r.body);return;}
    if(path==="/icon.png"||path==="/apple-touch-icon.png"){icon??=await sharp(Buffer.from(ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:icon);return;}
    if(path!=="/"){res.writeHead(404);res.end();return;}
-   const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:mobileHtml(nonce,deleteToken));
+   const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:mobileHtml(nonce,deleteToken,!!o.cockpit));
   }catch{if(!res.headersSent)res.writeHead(503);res.end();}
  })();});
 }

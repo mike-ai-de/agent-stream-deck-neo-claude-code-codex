@@ -9,10 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- OSCA Flight Deck unter `/cockpit`: animiertes Glascockpit mit Agentenlampen
+  (Claude, Codex, Hermes, Orca·Pi, LLM), CPU/GPU-Instrumenten, LED-Pegeln je
+  CPU-Kern, Token/s, Chip-Temperatur mit macOS-Hitzestufe, Kontingent-Tankanzeigen,
+  EICAS-Warnzeile und SYS-Seite. Live-Daten per Server-Sent Events.
+- Natives Messprogramm `native/osca-sensors` (CPU je Kern, GPU, Temperaturen,
+  Hitzestufe, Swap) ohne Administratorrechte; wird beim Build mitgebaut.
+- Flight Recorder: Instrumentenverlauf je Sekunde, 30 Tage Aufbewahrung,
+  Ansichten 1 h / 24 h / 7 d / 30 d.
+- Scriptable-Widget für Sperr- und Home-Bildschirm unter `/widget`.
+- Web-App-Manifest, damit das Cockpit als Home-Bildschirm-App ohne Adresszeile startet.
 - Mobile Statusseite (`npm run mobile` bzw. `dist/scripts/osca-mobile.js`) auf
   `127.0.0.1:9464`: alle drei Seiten im Neo-Design, nur lesend, bereinigte
   Daten, für den Zugriff über Tailscale Serve. LaunchAgent-Vorlage
   `deploy/osca/de.osca.neo-mobile.plist`.
+
+### Changed
+
+- Kachel-Historie löscht Einträge nach 30 Tagen automatisch.
+- Kachelseite hat einen Rücksprung „‹ DECK“ ins Cockpit.
 
 ## [0.3.1-osca.1] - 2026-10-26
 

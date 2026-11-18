@@ -17,6 +17,11 @@ describe("Neo history",()=>{
   expect(h.list("gpu",0)).toHaveLength(1);
   h.close();
  });
+ it("deletes tile history older than the retention period",()=>{
+  const h=new History(":memory:",30),s=new OscaDashboard(defaults).snapshot();s.cpu=reading(1,"test");const now=Date.now();
+  h.record({snapshot:s},now-32*86400e3);h.record({snapshot:s},now-86400e3);expect(h.prune(now)).toBe(0);
+  expect(h.list("cpu",0)).toHaveLength(1);h.close();
+ });
  it("rejects cross-origin and unauthenticated deletion",async()=>{
   const h=new History(":memory:"),s=new OscaDashboard(defaults).snapshot();h.record({snapshot:s},Date.now());
   const options={port:0,upstream:"http://127.0.0.1:9463",history:h};const server=createMobileServer(options,async()=>({snapshot:s}));

@@ -45,16 +45,35 @@ Die Konfiguration enthält keine Zugangsdaten. Die Claude-Kontingente werden zur
 
 Über HTTP gibt es keine Fernaktionen. Der private Unix-Socket (`~/.neo-agent-deck/osca-neo.sock`, 0600) erlaubt ausschließlich Seitennavigation.
 
+## Cockpit fürs Handy (OSCA Flight Deck)
+
+Unter `/cockpit` liefert der Handy-Dienst ein animiertes Glascockpit im Stil eines Flugzeugs, Kopfzeile „OSCA Flight Deck · Operating System · Core · Agent“:
+
+- **Lampen:** Claude, Codex, Hermes und Orca·Pi leuchten grün, solange sie arbeiten; die LLM-Zeile zeigt das geladene Ollama-Modell und die Phase READING/WRITING.
+- **Instrumente:** CPU und GPU (GPU ohne Warnbereich, Volllast ist gewollt), 18 CPU-Kerne als LED-Pegel mit Spitzenwert, Ausgabe-Token/s, Chip-Temperatur mit macOS-Hitzestufe, Swap.
+- **Fuel:** Claude-Kontingent 5h/7d und Codex 7d als Tankanzeige mit Reset-Zeitpunkt.
+- **EICAS:** Warnzeile für Temperatur, Swap/Speicherdruck, CPU-Last ab 90 %, knappe Kontingente und fehlende Quellen.
+- **Flight Recorder:** Verlaufskurve unter jedem Instrument, live (1 Min.) oder 1 h / 24 h / 7 d / 30 d.
+- **SYS:** alle bisherigen Neo-Werte kompakt; **NEO** führt zur alten Kachelseite (dort „‹ DECK“ zurück).
+
+Datenquellen, alle nur lesend: das native Messprogramm `native/osca-sensors.swift` (CPU je Kern, GPU, Temperatursensoren, Hitzestufe, Swap; viermal pro Sekunde, ohne Administratorrechte; wird bei `npm run build` nach `dist/bin/osca-sensors` gebaut), das Ollama-Log (`slot print_timing` für Token/s und Phase), `orca terminal list --json` (Aktivität der letzten 15 s; Titel „Pi …“/„π …“ zählen als Pi) und `/api/status` des Neo-Dienstes. Die Seite bekommt die Werte per Server-Sent Events (`/api/cockpit/stream`, 4 Hz), Schnappschuss unter `/api/cockpit`. Keine Sitzungs-IDs, Pfade, PIDs oder Terminalinhalte.
+
+Der Flight Recorder speichert einmal pro Sekunde CPU, GPU, Token/s, Chip-Temperatur und Swap in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/cockpit-recorder.sqlite` (`OSCA_RECORDER_DB`, Aufbewahrung `OSCA_RECORDER_DAYS`, Standard 30 Tage, etwa 4 MB pro Tag). `/api/cockpit/history?range=1h|24h|7d|30d` liefert bis zu 240 gemittelte Punkte.
+
+Als App: `https://osca.tail73d176.ts.net:9464/cockpit` in Safari öffnen, „Teilen → Zum Home-Bildschirm“. Dank Manifest startet sie im Vollbild ohne Adresszeile und heißt „OSCA“. Solange sie offen ist, hält sie den Bildschirm wach (Wake Lock).
+
+**Widget (Scriptable):** `/widget` zeigt das fertige Skript mit Kopier-Button und Anleitung, `/widget.js` liefert es als Text, mit der Adresse des aufrufenden Hosts. Sperrbildschirm: rund (Parameter `temp`, `gpu`, `cpu` oder `tps`), rechteckig, einzeilig; Home-Bildschirm: klein, mittel, groß. Widgets sind Standbilder, die iOS etwa alle 5–15 Minuten erneuert; ein Tipp öffnet das Cockpit.
+
 ## Statusseite fürs Handy
 
 Ein eigener, nur lesender Dienst (`scripts/osca-mobile.ts` → `src/osca/mobile.ts`) zeigt alle drei Seiten so, wie die Tasten am Neo aussehen: gleiche Texte, Farben und Kontingentbalken, dazu die Infobar. Er läuft getrennt vom HID-Dienst, liest dessen `/api/status` und gibt nur die Tasteninhalte weiter, keine Sitzungs-IDs, Pfade, PIDs oder Hashes. Die Seite aktualisiert sich alle fünf Sekunden. Zwischen AGENTS, LOCAL und OPS wechselst du per Wischen oder über die Reiter. Der Punkt am Reiter zeigt, welche Seite gerade am Gerät sichtbar ist. Fällt der Neo-Dienst aus oder ist das Gerät getrennt, zeigt die Seite das deutlich an.
 
-Die Handyseite bietet pro Kachel einen lokalen Verlauf. Der Dienst speichert einmal pro Minute bereinigte Kachelinhalte und verfügbare Messwerte in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/history.sqlite` (alternativ `OSCA_NEO_HISTORY_DB`). Die Speicherung beginnt mit der Aktivierung; vorhandene alte Protokolle werden nicht rückwirkend importiert. Die Detailansicht ermöglicht das Löschen einzelner angezeigter Messpunkte oder der gesamten Historie einer Kachel nach Bestätigung. Andere Verläufe bleiben erhalten. Lücken oder unbekannte Werte sind keine Nullwerte; Inferenzwerte zeigen den zuletzt vom Neo gemeldeten Wert, nicht garantiert jede einzelne Anfrage. Bei gestopptem Handy- oder Neo-Dienst entstehen Lücken. Der Webdienst erlaubt zusätzlich ausschließlich für die eigene Verlaufshistorie geschützte Löschanfragen; Geräteaktionen bleiben über HTTP deaktiviert.
+Die Handyseite bietet pro Kachel einen lokalen Verlauf. Der Dienst speichert einmal pro Minute bereinigte Kachelinhalte und verfügbare Messwerte in `/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/history.sqlite` (alternativ `OSCA_NEO_HISTORY_DB`). Die Speicherung beginnt mit der Aktivierung; vorhandene alte Protokolle werden nicht rückwirkend importiert. Einträge älter als 30 Tage werden automatisch gelöscht (`OSCA_HISTORY_DAYS`). Die Detailansicht ermöglicht das Löschen einzelner angezeigter Messpunkte oder der gesamten Historie einer Kachel nach Bestätigung. Andere Verläufe bleiben erhalten. Lücken oder unbekannte Werte sind keine Nullwerte; Inferenzwerte zeigen den zuletzt vom Neo gemeldeten Wert, nicht garantiert jede einzelne Anfrage. Bei gestopptem Handy- oder Neo-Dienst entstehen Lücken. Der Webdienst erlaubt zusätzlich ausschließlich für die eigene Verlaufshistorie geschützte Löschanfragen; Geräteaktionen bleiben über HTTP deaktiviert.
 
 | | |
 | --- | --- |
-| Lokal | <http://127.0.0.1:9464>, JSON: `/api/mobile` |
-| Handy (Tailnet) | <https://osca.tail73d176.ts.net:9464> |
+| Lokal | <http://127.0.0.1:9464>, Cockpit `/cockpit`, JSON: `/api/mobile`, `/api/cockpit` |
+| Handy (Tailnet) | <https://osca.tail73d176.ts.net:9464/cockpit> (Cockpit), <https://osca.tail73d176.ts.net:9464> (Kachelseite) |
 | Installation | `~/.local/share/osca-neo-mobile` (Kopie von `dist`, `node_modules` wie beim Neo-Dienst) |
 | Dienst | LaunchAgent `de.osca.neo-mobile`, Vorlage: [`deploy/osca/de.osca.neo-mobile.plist`](deploy/osca/de.osca.neo-mobile.plist) |
 | Logs | `~/Library/Logs/OSCANeoMobile.log` und `OSCANeoMobile.error.log` |

@@ -1,11 +1,18 @@
 import {createMobileServer} from "../src/osca/mobile.js";
 import {History} from "../src/osca/history.js";
 import {fetchJson} from "../src/osca/io.js";
+import {CockpitHub} from "../src/osca/cockpit.js";
+import {FlightRecorder} from "../src/osca/recorder.js";
+import {existsSync} from "node:fs";
 const port=Number(process.env.OSCA_MOBILE_PORT||9464);const upstream=process.env.OSCA_NEO_URL||"http://127.0.0.1:9463";
-const history=new History(process.env.OSCA_NEO_HISTORY_DB||"/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/history.sqlite");
+const history=new History(process.env.OSCA_NEO_HISTORY_DB||"/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/history.sqlite",Number(process.env.OSCA_HISTORY_DAYS||30));
 let collecting=false;
 async function collect(){if(collecting)return;collecting=true;try{history.record(await fetchJson(`${upstream}/api/status`,3000,4*1024*1024));}catch(e){console.warn("Historie: Messung nicht verfügbar",e instanceof Error?e.message:"unknown");}finally{collecting=false;}}
 void collect();const historyTimer=setInterval(()=>void collect(),60000);
-const server=createMobileServer({port,upstream,history});
+const sensorsBin=process.env.OSCA_SENSORS_BIN||new URL("../bin/osca-sensors",import.meta.url).pathname;
+const orcaBin=process.env.OSCA_ORCA_BIN||["/opt/homebrew/bin/orca","/usr/local/bin/orca"].find(p=>existsSync(p))||null;
+const recorder=new FlightRecorder(process.env.OSCA_RECORDER_DB||"/Volumes/OSCA-DATA/Projects/OSCA/Neo/data/cockpit-recorder.sqlite",Number(process.env.OSCA_RECORDER_DAYS||30));
+const cockpit=new CockpitHub({sensorsBin,upstream,orcaBin,recorder}).start();
+const server=createMobileServer({port,upstream,history,cockpit});
 server.listen(port,"127.0.0.1",()=>console.log(`OSCA Neo mobile: http://127.0.0.1:${port} (read-only, upstream ${upstream})`));
-for(const sig of ["SIGTERM","SIGINT"] as const)process.on(sig,()=>{clearInterval(historyTimer);server.close(()=>{history.close();process.exit(0);});});
+for(const sig of ["SIGTERM","SIGINT"] as const)process.on(sig,()=>{clearInterval(historyTimer);cockpit.stop();server.closeAllConnections?.();server.close(()=>{history.close();recorder.close();process.exit(0);});});

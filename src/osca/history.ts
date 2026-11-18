@@ -24,14 +24,16 @@ export function measurements(s: Snapshot, module: string): Point[] {
 }
 
 export class History {
- private db: DatabaseSync;
- constructor(file: string) {
+ private db: DatabaseSync; private lastPrune=0;
+ // Rows older than retentionDays are deleted automatically (checked at most once per hour).
+ constructor(file: string, readonly retentionDays=30) {
   if (file !== ":memory:") { fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700}); }
   this.db = new DatabaseSync(file);
   if (file !== ":memory:") fs.chmodSync(file,0o600);
   this.db.exec("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY, module TEXT NOT NULL, at INTEGER NOT NULL, quality TEXT NOT NULL, summary TEXT NOT NULL, points TEXT NOT NULL); CREATE INDEX IF NOT EXISTS samples_module_at ON samples(module,at);");
  }
  record(status: unknown, now=Date.now()): void {
+  if (now-this.lastPrune>3600e3) this.prune(now);
   const view=mobileView(status,now), s=(status as {snapshot:Snapshot}).snapshot;
   const insert=this.db.prepare("INSERT INTO samples(module,at,quality,summary,points) VALUES(?,?,?,?,?)");
   this.db.exec("BEGIN");
@@ -45,5 +47,6 @@ export class History {
  list(module: string, since: number) { if (!modules.has(module)) throw new Error("Unknown module"); return this.db.prepare("SELECT id,at,quality,summary,points FROM (SELECT *,ROW_NUMBER() OVER (ORDER BY at DESC) AS rn FROM samples WHERE module=? AND at>=?) WHERE (rn - 1) % ? = 0 ORDER BY at DESC LIMIT 5000").all(module,since,Math.max(1,Math.ceil((Date.now()-since)/60000/4800))).map(row=>({...row,summary:JSON.parse(String(row.summary)),points:JSON.parse(String(row.points))})); }
  remove(module: string) {if(!modules.has(module)) throw new Error("Unknown module"); return this.db.prepare("DELETE FROM samples WHERE module=?").run(module);}
  removePoint(module:string,id:number) {if(!modules.has(module)||!Number.isSafeInteger(id)||id<=0) throw new Error("Invalid selection");return this.db.prepare("DELETE FROM samples WHERE module=? AND id=?").run(module,id);}
+ prune(now=Date.now()):number {this.lastPrune=now;return Number(this.db.prepare("DELETE FROM samples WHERE at<?").run(now-this.retentionDays*86400e3).changes);}
  close(){this.db.close();}
 }
