@@ -166,9 +166,13 @@ function splitGauge(cv,o){
   if(big){x.fillStyle=q<0?"#c27fb5":q>0?"#7fc3cf":"#9aa6b2";x.font="600 "+Math.max(8,R*0.13)+"px -apple-system,sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(labels[String(q)],cx+Math.cos(t)*R*0.56,cy+Math.sin(t)*R*0.56);}}
  x.save();x.shadowColor="rgba(255,255,255,.8)";x.shadowBlur=8;x.beginPath();x.moveTo(cx+Math.cos(na+Math.PI/2)*R*0.035,cy+Math.sin(na+Math.PI/2)*R*0.035);x.lineTo(cx+Math.cos(na)*R*0.97,cy+Math.sin(na)*R*0.97);x.lineTo(cx+Math.cos(na-Math.PI/2)*R*0.035,cy+Math.sin(na-Math.PI/2)*R*0.035);x.closePath();x.fillStyle="#fff";x.fill();x.restore();
  x.beginPath();x.arc(cx,cy,R*0.07,0,Math.PI*2);x.fillStyle="#1a232d";x.fill();x.strokeStyle="#c9d2db";x.lineWidth=1;x.stroke();
- var bw=R*1.16,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;x.fillStyle="#000";x.strokeStyle=col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
+ var bw=R*1.34,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;x.fillStyle="#000";x.strokeStyle=col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
  x.fillStyle=col;x.textBaseline="middle";x.font="600 "+(bh*0.62)+"px 'SF Mono',ui-monospace,Menlo,monospace";
- if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{x.save();x.font="800 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText(p<0?"IN":"OUT",bx+bw*0.05,by+bh*0.56);x.restore();x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.76,by+bh*0.56);}
+ if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{
+  // IN/OUT tag on the left; the value is right-aligned and shrinks if needed so a clear gap always remains.
+  var tagF="800 "+Math.max(8,bh*0.28)+"px -apple-system,sans-serif",valF=bh*0.62,right=bx+bw*0.74,tagX=bx+bw*0.06;x.save();x.font=tagF;x.textAlign="left";x.fillText(p<0?"IN":"OUT",tagX,by+bh*0.56);var tagEnd=tagX+x.measureText(p<0?"IN":"OUT").width+bh*0.30;x.restore();
+  x.font="600 "+valF+"px 'SF Mono',ui-monospace,Menlo,monospace";var vw=x.measureText(o.text).width;if(right-vw<tagEnd){valF=valF*Math.max(0.6,(right-tagEnd)/vw);x.font="600 "+valF+"px 'SF Mono',ui-monospace,Menlo,monospace";}
+  x.textAlign="right";x.fillText(o.text,right,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.775,by+bh*0.56);}
  x.fillStyle="#e9eef3";x.font="800 "+Math.max(10,R*0.16)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,1);
 }
 // Mirrored trend: output above the centre line (cyan), input below (magenta).
