@@ -158,7 +158,7 @@ export function createMobileServer(o:MobileOptions,fetchStatus:()=>Promise<any>=
     const ping=setInterval(()=>res.write(": ping\n\n"),15000);req.on("close",()=>{off();clearInterval(ping);});return;
    }
    if(path==="/cockpit"&&o.cockpit){const nonce=randomBytes(16).toString("base64");res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":`default-src 'none'; img-src 'self'; manifest-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`});res.end(req.method==="HEAD"?undefined:cockpitHtml(nonce));return;}
-   if(path==="/cockpit-icon.png"){cockpitIcon??=await sharp(Buffer.from(COCKPIT_ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:cockpitIcon);return;}
+   if(path==="/cockpit-icon.png"||path==="/favicon.ico"){cockpitIcon??=await sharp(Buffer.from(COCKPIT_ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:cockpitIcon);return;}
    if(path==="/api/mobile"){const r=await api();res.writeHead(r.code,{"Content-Type":"application/json; charset=utf-8"});res.end(req.method==="HEAD"?undefined:r.body);return;}
    if(path==="/icon.png"||path==="/apple-touch-icon.png"){icon??=await sharp(Buffer.from(ICON)).png().toBuffer();res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"max-age=86400"});res.end(req.method==="HEAD"?undefined:icon);return;}
    if(path!=="/"){res.writeHead(404);res.end();return;}

@@ -31,6 +31,11 @@ describe("cockpit LLM log",()=>{
  const log=["slot print_timing: id  0 | task 7 | prompt processing, n_tokens =   4431, progress = 0.81, t =   5.21 s / 850.47 tokens per second",
   "slot print_timing: id  0 | task 7 | n_gen =   5853, tg =  16.79 t/s, tg_3s =  16.64 t/s"].join("\n");
  it("detects writing with the current token rate",()=>{expect(parseLlamaLog(log,now,now)).toEqual({phase:"writing",tps:16.64,lastTps:16.79,prefillTps:850.47,progress:null});});
+ it("switches to reading as soon as a new prompt starts",()=>{
+  const l="slot   operator(): id  0 | task 3336 | new prompt, n_ctx_slot = 131072, n_keep = 4, task.n_tokens = 65967";
+  expect(parseLlamaLog("slot      release: id  0 | task 3274 | stop processing: n_tokens = 63488, truncated = 0\n"+l,now,now)).toMatchObject({phase:"reading",progress:0,prefillTps:null});
+  expect(parseLlamaLog(l+"\nsrv          stop: cancel task, id_task = 3336\nslot      release: id  0 | task 3336 | stop processing: n_tokens = 2048, truncated = 0",now,now).phase).toBe("idle");
+ });
  it("detects reading the prompt",()=>{expect(parseLlamaLog(log.split("\n")[0],now,now)).toMatchObject({phase:"reading",progress:0.81,tps:null});});
  it("uses the momentary input rate between two progress lines of the same task",()=>{
   const p=(task:number,n:number,t:number,avg:number)=>`slot print_timing: id  0 | task ${task} | prompt processing, n_tokens =  ${n}, progress = 0.50, t =  ${t} s / ${avg} tokens per second`;

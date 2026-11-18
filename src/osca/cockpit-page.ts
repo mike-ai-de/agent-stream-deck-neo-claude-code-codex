@@ -77,9 +77,9 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
 .sysr.stale .k{color:var(--amber)}
 .rec{display:flex;align-items:center;justify-content:flex-end;padding:6px 8px}.rec .ttl{position:static;flex:1}.rng{display:flex;gap:4px}.rng button{font:800 10px/1 -apple-system,sans-serif;letter-spacing:.12em;padding:7px 9px;border-radius:5px;background:#0b0f14;border:1px solid #1c2530;color:#7c8896}.rng button.on{color:#001b08;background:var(--green);border-color:var(--green);box-shadow:0 0 8px rgba(43,234,108,.6)}
 .wlink{display:block;margin-top:12px;padding:11px;text-align:center;border-radius:7px;border:1px solid rgba(51,224,255,.5);color:var(--cyan);text-decoration:none;font-size:11px;font-weight:800;letter-spacing:.14em}
-.sub.peak{margin-top:4px}.sub.peak b{color:var(--cyan)}.sub.peak span+span b{color:var(--magenta)}
-.trng{display:flex;gap:4px;position:absolute;top:5px;right:8px}.trng button{font:800 9px/1 -apple-system,sans-serif;letter-spacing:.1em;padding:5px 7px;border-radius:4px;background:#0b0f14;border:1px solid #1c2530;color:#7c8896}.trng button.on{color:#00171c;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 8px rgba(51,224,255,.5)}
-.tot{padding-top:24px;display:grid;gap:4px}.odo{display:flex;align-items:center;gap:10px}.odo .k{width:34px;font-size:11px;font-weight:800;letter-spacing:.12em}.odo .k.in{color:var(--magenta)}.odo .k.out{color:var(--cyan)}
+.sub.peak{margin-top:4px}.sub span{white-space:nowrap}.sub.peak b{color:var(--cyan)}.sub.peak span+span b{color:var(--magenta)}
+.trng{display:flex;gap:4px;margin:20px 0 0;flex-wrap:wrap}.trng button{flex:1}.trng button{font:800 9px/1 -apple-system,sans-serif;letter-spacing:.1em;padding:5px 7px;border-radius:4px;background:#0b0f14;border:1px solid #1c2530;color:#7c8896}.trng button.on{color:#00171c;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 8px rgba(51,224,255,.5)}
+.tot{padding-top:10px;display:grid;gap:4px}.odo{display:flex;align-items:center;gap:10px}.odo .k{width:34px;font-size:11px;font-weight:800;letter-spacing:.12em}.odo .k.in{color:var(--magenta)}.odo .k.out{color:var(--cyan)}
 .digits{display:flex;gap:2px;align-items:flex-end}.dg{width:.74em;height:1.25em;overflow:hidden;border-radius:3px;border:1px solid #25303b;background:linear-gradient(180deg,#05080b 0%,#1a222b 48%,#1a222b 52%,#05080b 100%);font:600 22px "SF Mono",ui-monospace,Menlo,monospace;color:#f2f6f9;box-shadow:inset 0 2px 4px rgba(0,0,0,.8)}
 .dg .col{display:block;transition:transform 1.1s cubic-bezier(.2,.8,.2,1)}.dg .col span{display:block;height:1.25em;line-height:1.25em;text-align:center}.dg.lead{color:#38424c}.dg.last{color:var(--amber)}
 .sep{font:600 18px "SF Mono",ui-monospace,monospace;color:#56616d;width:.35em;text-align:center}.odx{font-size:10px;color:var(--dim);letter-spacing:.06em;padding-left:44px;margin-bottom:5px}.odx b{color:#c9d2db;font-weight:600}
@@ -99,7 +99,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="eng"><div><canvas class="g" id="gCpu"></canvas><canvas class="spark" id="sCpu"></canvas></div><div><canvas class="g" id="gGpu"></canvas><canvas class="spark" id="sGpu"></canvas></div></div>
   <canvas class="vu" id="vu"></canvas><div class="sub"><span>CPU CORES</span><span><b class="mono" id="coreN">—</b></span></div></section>
  <section class="panel"><div class="row2">
-  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK · LAST MINUTE</span></div></div>
+  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
@@ -130,7 +130,7 @@ var ZOOM=1;
 function fit(cv){var r=cv.getBoundingClientRect(),ratio=cv.offsetWidth?r.width/cv.offsetWidth:1,d=(window.devicePixelRatio||1)*ZOOM/(ratio||1),w=Math.round(r.width*d),h=Math.round(r.height*d);if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}var x=cv.getContext("2d");x.setTransform(d,0,0,d,0,0);return {x:x,w:r.width,h:r.height};}
 function gauge(cv,o){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);
- var cx=w/2,cy=h*0.56,R=Math.min(w*0.42,h*0.5),a0=Math.PI*0.75,a1=Math.PI*2.25;
+ var cx=w/2,cy=h*0.6,R=Math.min(w*0.41,h*0.46),a0=Math.PI*0.75,a1=Math.PI*2.25;
  function ang(v){return a0+(a1-a0)*Math.max(0,Math.min(1,(v-o.min)/(o.max-o.min)));}
  x.lineCap="butt";
  x.beginPath();x.arc(cx,cy,R,a0,a1);x.strokeStyle="#1a232d";x.lineWidth=R*0.13;x.stroke();
@@ -147,12 +147,12 @@ function gauge(cv,o){
  var bw=R*1.16,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;
  x.fillStyle="#000";x.strokeStyle=o.value===null?"#2a3542":col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
  x.fillStyle=o.value===null?C.dim:col;x.font="600 "+(bh*0.68)+"px 'SF Mono',ui-monospace,Menlo,monospace";x.textBaseline="middle";if(o.unit){x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText(o.unit,bx+bw*0.76,by+bh*0.56);}else{x.textAlign="center";x.fillText(o.text,cx,by+bh*0.54);}
- x.fillStyle="#e9eef3";x.font="800 "+Math.max(11,R*0.19)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,2);
+ x.fillStyle="#e9eef3";x.font="800 "+Math.max(10,R*0.16)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,1);
 }
 // Split instrument: needle centred at idle, left = input (prompt reading, 0-1000 T/S), right = output (0-40 T/S).
 function splitGauge(cv,o){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);
- var cx=w/2,cy=h*0.56,R=Math.min(w*0.42,h*0.5),a0=Math.PI*0.75,a1=Math.PI*2.25,mid=(a0+a1)/2,half=(a1-a0)/2;
+ var cx=w/2,cy=h*0.6,R=Math.min(w*0.41,h*0.46),a0=Math.PI*0.75,a1=Math.PI*2.25,mid=(a0+a1)/2,half=(a1-a0)/2;
  function ang(p){return mid+Math.max(-1,Math.min(1,p))*half;}
  x.beginPath();x.arc(cx,cy,R,a0,a1);x.strokeStyle="#1a232d";x.lineWidth=R*0.13;x.stroke();
  x.beginPath();x.arc(cx,cy,R,a0,mid);x.strokeStyle="rgba(255,79,216,.35)";x.lineWidth=R*0.05;x.stroke();
@@ -169,7 +169,7 @@ function splitGauge(cv,o){
  var bw=R*1.16,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;x.fillStyle="#000";x.strokeStyle=col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
  x.fillStyle=col;x.textBaseline="middle";x.font="600 "+(bh*0.62)+"px 'SF Mono',ui-monospace,Menlo,monospace";
  if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{x.save();x.font="800 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText(p<0?"IN":"OUT",bx+bw*0.05,by+bh*0.56);x.restore();x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.76,by+bh*0.56);}
- x.fillStyle="#e9eef3";x.font="800 "+Math.max(11,R*0.19)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,2);
+ x.fillStyle="#e9eef3";x.font="800 "+Math.max(10,R*0.16)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,1);
 }
 // Mirrored trend: output above the centre line (cyan), input below (magenta).
 function spark2(cv,outArr,inArr){
@@ -217,11 +217,11 @@ function spark(cv,arr,min,max,color,auto){
 }
 var range="live",recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]},recTimer=null,recPeak={out:null,in:null};
 function loadRange(){if(range==="live")return;fetch("/api/cockpit/history?range="+range,{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(d){if(!d||!d.ok)return;var rec={cpu:[],gpu:[],tps:[],temp:[],tin:[]},prev=null;
- d.points.forEach(function(p){if(prev!==null&&p[0]-prev>d.step*1.5){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p.length>5?p[5]:null);});recorded=rec;recPeak=d.peak||{out:null,in:null};peaks();}).catch(function(){});}
-function peaks(){var mx=function(a){var v=a.filter(function(x){return x!=null&&x>0;});return v.length?Math.max.apply(null,v):null;};
+ d.points.forEach(function(p){if(prev!==null&&p[0]-prev>d.step*1.5){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p.length>5?p[5]:null);});recorded=rec;recPeak=d.peak||{out:null,in:null};updatePeaks();}).catch(function(){});}
+function updatePeaks(){var mx=function(a){var v=a.filter(function(x){return x!=null&&x>0;});return v.length?Math.max.apply(null,v):null;};
  var po=range==="live"?mx(hist.tps):recPeak.out,pi=range==="live"?mx(hist.tin):recPeak.in;
- $("pkOut").textContent=po!=null&&po>0?po.toFixed(1)+" T/S":"—";$("pkIn").textContent=pi!=null&&pi>0?Math.round(pi).toLocaleString("de-DE")+" T/S":"—";
- $("pkR").textContent="PEAK · "+({live:"LAST MINUTE","1h":"LAST HOUR","24h":"LAST 24 H","7d":"LAST 7 DAYS","30d":"LAST 30 DAYS"})[range];}
+ $("pkOut").textContent=po!=null&&po>0?po.toFixed(1):"—";$("pkIn").textContent=pi!=null&&pi>0?Math.round(pi).toLocaleString("de-DE"):"—";
+ $("pkR").textContent="PEAK T/S · "+({live:"LAST MINUTE","1h":"LAST HOUR","24h":"LAST 24 H","7d":"LAST 7 DAYS","30d":"LAST 30 DAYS"})[range];}
 function series(k){return range==="live"?hist[k]:recorded[k];}
 function setLamp(id,lamp,sub){var el=$("l-"+id);el.className="lamp "+lamp;$("s-"+id).textContent=sub;}
 function pad(n){return (n<10?"0":"")+n;}
@@ -253,7 +253,7 @@ function frame(now){
  var sweep=Math.max(0,1-(now-boot)/1800),sv=sweep>0?Math.sin(Math.min(1,(now-boot)/900)*Math.PI/2)*(sweep>0.5?1:sweep*2):0;
  var f=data,cpu=f&&f.live.cpu!=null?f.live.cpu:0,gpu=f&&f.live.gpu!=null?f.live.gpu:0,tps=f&&f.llm.tps!=null?f.llm.tps:0,temp=f&&f.temp.max!=null?f.temp.max:30;
  anim.cpu=lerp(anim.cpu,sweep>0?100*sv:cpu,k);anim.gpu=lerp(anim.gpu,sweep>0?100*sv:gpu,k);anim.tps=lerp(anim.tps,sweep>0?40*sv:tps,kt);anim.temp=lerp(anim.temp,sweep>0?30+80*sv:temp,kt);var split=f&&f.llm.phase==="writing"&&f.llm.tps!=null?Math.min(1,f.llm.tps/40):f&&f.llm.phase==="reading"&&f.llm.prefillTps!=null?-Math.min(1,f.llm.prefillTps/1000):0;anim.split=lerp(anim.split,sweep>0?(sv*2-1)*(sweep>0.5?1:sweep*2):split,kt);
- if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);add("tps",f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps:0);add("temp",f.temp.max);add("tin",f.llm.phase==="reading"&&f.llm.prefillTps!=null?f.llm.prefillTps:0);if(range==="live")peaks();}}
+ if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);add("tps",f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps:0);add("temp",f.temp.max);add("tin",f.llm.phase==="reading"&&f.llm.prefillTps!=null?f.llm.prefillTps:0);if(range==="live")updatePeaks();}}
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
@@ -282,7 +282,7 @@ function sysView(){fetch("/api/mobile",{cache:"no-store"}).then(function(r){retu
  $("sysT").textContent="SYSTEM STATUS · v"+m.version;wall();}).catch(function(){});}
 var sysTimer=null;
 Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(b){b.onclick=function(){tokRange=b.getAttribute("data-t");Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(o){o.className=o===b?"on":"";});totalizer();};});
-Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]};recPeak={out:null,in:null};peaks();clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
+Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]};recPeak={out:null,in:null};updatePeaks();clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
 $("bSys").onclick=function(){$("pfd").hidden=true;$("pfd").style.display="none";$("sys").style.display="block";$("bSys").className="on";$("bPfd").className="";sysView();sysTimer=setInterval(sysView,5000);wall();};
 $("bPfd").onclick=function(){$("pfd").hidden=false;$("pfd").style.display="";$("sys").style.display="none";$("bPfd").className="on";$("bSys").className="";clearInterval(sysTimer);boot=performance.now();wall();};
 // Big-screen mode (e.g. Mac Studio display): scale the whole deck to fill the window, re-rendering canvases at full resolution.

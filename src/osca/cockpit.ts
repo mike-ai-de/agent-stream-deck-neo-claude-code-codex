@@ -67,6 +67,8 @@ export function parseLlamaLog(raw:string,modifiedAt:number,now=Date.now()):LlmSt
  let prev:{task:string;n:number;t:number}|null=null,cached:{task:string;n:number}|null=null;
  for(const line of raw.split("\n")){
   let m:RegExpExecArray|null;
+  // A new prompt means llama-server starts reading; the first progress line can take seconds.
+  if(/\| new prompt,/.test(line)){phase="reading";progress=0;prefillTps=null;tps=null;continue;}
   if((m=/task (\d+) \| cached n_tokens = (\d+)/.exec(line))){cached={task:m[1],n:Number(m[2])};continue;}
   if((m=/task (\d+) \| prompt processing, n_tokens =\s*(\d+), progress = ([\d.]+), t =\s*([\d.]+) s \/\s*([\d.]+) tokens per second/.exec(line))){
    const task=m[1],n=Number(m[2]),t=Number(m[4]);phase="reading";progress=Number(m[3]);tps=null;

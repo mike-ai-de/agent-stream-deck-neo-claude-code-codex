@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web-App-Manifest, damit das Cockpit als Home-Bildschirm-App ohne Adresszeile startet.
 - Großbild-Modus: Auf breiten Bildschirmen skaliert das Cockpit auf die volle Fenstergröße.
 - IN·OUT-Instrument mit Mittelstellung (Einlesen links, Schreiben rechts) und gespiegelter Verlaufskurve; Flight Recorder speichert zusätzlich das Einlesetempo.
+- Fix: Namenskonflikt im Cockpit-Skript (Funktion `peaks` von Kern-Pegel-Liste überschrieben) stoppte Verlaufskurven, Zeitwahl und Spitzenwerte; neuer Laufzeittest führt das Seiten-Skript aus. Token-Zeitwahl überdeckt die Überschrift nicht mehr, PEAK-Zeile ohne Umbruch, Instrumentennamen frei vom Bogen, LLM-Phase READING ab Beginn einer neuen Anfrage, favicon.
 - Einlesetempo als Momentanwert zwischen zwei Log-Zeilen statt Ollamas Durchschnitt; wiederverwendeter Cache wird herausgerechnet, die Schlusszeile (Sprung auf 100 %) ignoriert.
 - Spitzenwerte PEAK OUT / PEAK IN zum gewählten Flight-Recorder-Zeitraum; IN/OUT-Kennung im Ziffernfeld statt abgeschnittener Beschriftung.
 - Token Totalizer mit rollenden Zählwerken; Daten vom eigenständigen OSCA Token Ledger. Widget zeigt Token-Summen.
