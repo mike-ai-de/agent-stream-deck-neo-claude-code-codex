@@ -99,7 +99,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="eng"><div><canvas class="g" id="gCpu"></canvas><canvas class="spark" id="sCpu"></canvas></div><div><canvas class="g" id="gGpu"></canvas><canvas class="spark" id="sGpu"></canvas></div></div>
   <canvas class="vu" id="vu"></canvas><div class="sub"><span>CPU CORES</span><span><b class="mono" id="coreN">—</b></span></div></section>
  <section class="panel"><div class="row2">
-  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
+  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><div class="sub"><b class="mono" id="strataRate">STRATA —</b><span class="mono" id="ollamaRate">OLLAMA —</span></div><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
@@ -121,7 +121,8 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
 var C={green:"#2bea6c",amber:"#ffb020",red:"#ff3b3b",cyan:"#33e0ff",white:"#e9eef3",dim:"#5d6b7a",magenta:"#ff4fd8"};
 var $=function(id){return document.getElementById(id);};
 var data=null,lastFrame=0,boot=performance.now();
-var anim={cpu:0,gpu:0,tps:0,temp:30,split:0};
+var anim={cpu:0,gpu:0,tps:0,temp:30,split:0,strataSplit:0};
+var strataScale={input:2000,output:200},ollamaScale={input:1000,output:40};
 var cores=[],peaks=[],peakT=[];
 var HIST=240,hist={cpu:[],gpu:[],tps:[],temp:[],tin:[]};
 function lerp(a,b,k){return a+(b-a)*k;}
@@ -149,7 +150,17 @@ function gauge(cv,o){
  x.fillStyle=o.value===null?C.dim:col;x.font="600 "+(bh*0.68)+"px 'SF Mono',ui-monospace,Menlo,monospace";x.textBaseline="middle";if(o.unit){x.textAlign="right";x.fillText(o.text,bx+bw*0.72,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText(o.unit,bx+bw*0.76,by+bh*0.56);}else{x.textAlign="center";x.fillText(o.text,cx,by+bh*0.54);}
  x.fillStyle="#e9eef3";x.font="800 "+Math.max(10,R*0.16)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,1);
 }
-// Split instrument: needle centred at idle, left = input (prompt reading, 0-1000 T/S), right = output (0-40 T/S).
+function isGenerating(llm){return !!llm&&(llm.phase==="reading"||llm.phase==="writing");}
+function throughput(llm){
+ if(!isGenerating(llm))return {direction:"",text:"IDLE",measured:false};
+ var input=llm.phase==="reading",rate=input?llm.prefillTps:llm.tps;
+ return {direction:input?"IN":"OUT",text:rate==null?"—":input?String(Math.round(rate)):rate.toFixed(1),measured:rate!=null};
+}
+function needlePosition(llm,scale){
+ if(!isGenerating(llm))return 0;
+ return llm.phase==="reading"?-Math.min(1,(llm.prefillTps||0)/scale.input):Math.min(1,(llm.tps||0)/scale.output);
+}
+// Strata on the outer scale, Ollama on the inner scale. Input left, output right.
 function splitGauge(cv,o){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);
  var cx=w/2,cy=h*0.6,R=Math.min(w*0.41,h*0.46),a0=Math.PI*0.75,a1=Math.PI*2.25,mid=(a0+a1)/2,half=(a1-a0)/2;
@@ -157,22 +168,38 @@ function splitGauge(cv,o){
  x.beginPath();x.arc(cx,cy,R,a0,a1);x.strokeStyle="#1a232d";x.lineWidth=R*0.13;x.stroke();
  x.beginPath();x.arc(cx,cy,R,a0,mid);x.strokeStyle="rgba(255,79,216,.35)";x.lineWidth=R*0.05;x.stroke();
  x.beginPath();x.arc(cx,cy,R,mid,a1);x.strokeStyle="rgba(51,224,255,.35)";x.lineWidth=R*0.05;x.stroke();
- var p=o.p,col=p<-0.005?C.magenta:p>0.005?C.cyan:C.dim,na=ang(p);
+ var p=o.strata,col=o.direction?(o.primary==="strata"?C.amber:C.white):C.dim,na=ang(p);
  var grad=x.createLinearGradient(cx-R,cy,cx+R,cy);grad.addColorStop(0,"rgba(255,79,216,.14)");grad.addColorStop(0.5,"rgba(233,238,243,.04)");grad.addColorStop(1,"rgba(51,224,255,.14)");
  x.beginPath();x.moveTo(cx,cy);if(p<0)x.arc(cx,cy,R*0.93,na,mid);else x.arc(cx,cy,R*0.93,mid,na);x.closePath();x.fillStyle=grad;x.fill();
  x.save();x.shadowColor=col;x.shadowBlur=10;x.beginPath();if(p<0)x.arc(cx,cy,R,na,mid);else x.arc(cx,cy,R,mid,na);x.strokeStyle=col;x.lineWidth=R*0.045;x.stroke();x.restore();
- var labels={"-1":"1000","-0.5":"500","0":"0","0.5":"20","1":"40"};
+ var labels=["2k","1k","0","100","200"];
  for(var i=0;i<=8;i++){var q=-1+i/4,t=ang(q),big=i%2===0;x.beginPath();x.moveTo(cx+Math.cos(t)*R*0.80,cy+Math.sin(t)*R*0.80);x.lineTo(cx+Math.cos(t)*R*(big?0.70:0.75),cy+Math.sin(t)*R*(big?0.70:0.75));x.strokeStyle=q===0?"#ffffff":"#c9d2db";x.lineWidth=q===0?2.2:big?1.6:1;x.stroke();
-  if(big){x.fillStyle=q<0?"#c27fb5":q>0?"#7fc3cf":"#9aa6b2";x.font="600 "+Math.max(8,R*0.13)+"px -apple-system,sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(labels[String(q)],cx+Math.cos(t)*R*0.56,cy+Math.sin(t)*R*0.56);}}
- x.save();x.shadowColor="rgba(255,255,255,.8)";x.shadowBlur=8;x.beginPath();x.moveTo(cx+Math.cos(na+Math.PI/2)*R*0.035,cy+Math.sin(na+Math.PI/2)*R*0.035);x.lineTo(cx+Math.cos(na)*R*0.97,cy+Math.sin(na)*R*0.97);x.lineTo(cx+Math.cos(na-Math.PI/2)*R*0.035,cy+Math.sin(na-Math.PI/2)*R*0.035);x.closePath();x.fillStyle="#fff";x.fill();x.restore();
+  if(big){var lt=ang(q===-1?-0.74:q===1?0.74:q);x.fillStyle=C.amber;x.font="700 "+Math.max(8,R*0.12)+"px -apple-system,sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(labels[i/2],cx+Math.cos(lt)*R*0.67,cy+Math.sin(lt)*R*0.67);}}
+ x.save();x.shadowColor=C.amber;x.shadowBlur=8;x.beginPath();x.moveTo(cx+Math.cos(na+Math.PI/2)*R*0.035,cy+Math.sin(na+Math.PI/2)*R*0.035);x.lineTo(cx+Math.cos(na)*R*0.97,cy+Math.sin(na)*R*0.97);x.lineTo(cx+Math.cos(na-Math.PI/2)*R*0.035,cy+Math.sin(na-Math.PI/2)*R*0.035);x.closePath();x.fillStyle=C.amber;x.fill();x.restore();
  x.beginPath();x.arc(cx,cy,R*0.07,0,Math.PI*2);x.fillStyle="#1a232d";x.fill();x.strokeStyle="#c9d2db";x.lineWidth=1;x.stroke();
+ var inner=R*0.52,sa=ang(o.ollama);
+ x.beginPath();x.arc(cx,cy,inner,a0,a1);x.strokeStyle="rgba(233,238,243,.46)";x.lineWidth=1.4;x.stroke();
+ x.font="700 "+Math.max(8,R*0.12)+"px -apple-system,sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillStyle=C.white;
+ for(var j=-2;j<=2;j++){
+  var tick=j/2,at=ang(tick),cos=Math.cos(at),sin=Math.sin(at);
+  x.beginPath();x.moveTo(cx+cos*inner,cy+sin*inner);x.lineTo(cx+cos*R*0.48,cy+sin*R*0.48);x.stroke();
+  if(j!==0){
+   var value=Math.abs(tick)*(j<0?ollamaScale.input:ollamaScale.output);
+   var labelAngle=ang(j===-2?-0.85:j===2?0.85:tick);
+   x.fillText(value>=1000?value/1000+"k":String(value),cx+Math.cos(labelAngle)*R*0.42,cy+Math.sin(labelAngle)*R*0.42);
+  }
+ }
+ // A small tangential gap keeps the white needle visible when both are at zero.
+ var gap=Math.max(4,R*0.075),sx=cx-Math.sin(sa)*gap,sy=cy+Math.cos(sa)*gap;
+ x.beginPath();x.moveTo(sx,sy);x.lineTo(sx+Math.cos(sa)*inner,sy+Math.sin(sa)*inner);
+ x.strokeStyle=C.white;x.lineWidth=Math.max(2,R*0.04);x.stroke();
  var bw=R*1.34,bh=R*0.38,bx=cx-bw/2,by=cy+R*0.30;x.fillStyle="#000";x.strokeStyle=col;x.lineWidth=1.2;x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,3);else x.rect(bx,by,bw,bh);x.fill();x.stroke();
  x.fillStyle=col;x.textBaseline="middle";x.font="600 "+(bh*0.62)+"px 'SF Mono',ui-monospace,Menlo,monospace";
- if(o.text==="IDLE"){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{
+ if(!o.direction){x.textAlign="center";x.fillText("IDLE",cx,by+bh*0.54);}else{
   // IN/OUT tag on the left; the value is right-aligned and shrinks if needed so a clear gap always remains.
-  var tagF="800 "+Math.max(8,bh*0.28)+"px -apple-system,sans-serif",valF=bh*0.62,right=bx+bw*0.74,tagX=bx+bw*0.06;x.save();x.font=tagF;x.textAlign="left";x.fillText(p<0?"IN":"OUT",tagX,by+bh*0.56);var tagEnd=tagX+x.measureText(p<0?"IN":"OUT").width+bh*0.30;x.restore();
+  var tagF="800 "+Math.max(8,bh*0.28)+"px -apple-system,sans-serif",valF=bh*0.62,right=bx+bw*0.74,tagX=bx+bw*0.06;x.save();x.font=tagF;x.textAlign="left";x.fillText(o.direction,tagX,by+bh*0.56);var tagEnd=tagX+x.measureText(o.direction).width+bh*0.30;x.restore();
   x.font="600 "+valF+"px 'SF Mono',ui-monospace,Menlo,monospace";var vw=x.measureText(o.text).width;if(right-vw<tagEnd){valF=valF*Math.max(0.6,(right-tagEnd)/vw);x.font="600 "+valF+"px 'SF Mono',ui-monospace,Menlo,monospace";}
-  x.textAlign="right";x.fillText(o.text,right,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";x.fillText("T/S",bx+bw*0.775,by+bh*0.56);}
+  x.textAlign="right";x.fillText(o.text,right,by+bh*0.54);x.fillStyle=C.dim;x.font="700 "+Math.max(8,bh*0.30)+"px -apple-system,sans-serif";x.textAlign="left";if(o.measured)x.fillText("T/S",bx+bw*0.775,by+bh*0.56);}
  x.fillStyle="#e9eef3";x.font="800 "+Math.max(10,R*0.16)+"px -apple-system,sans-serif";x.textAlign="left";x.textBaseline="top";x.fillText(o.label,2,1);
 }
 // Mirrored trend: output above the centre line (cyan), input below (magenta).
@@ -238,9 +265,15 @@ function apply(f){
  setLamp("codex",a.codex.lamp,a.codex.working?a.codex.working+" WORKING":a.codex.partial?"PARTIAL":"IDLE");
  setLamp("hermes",a.hermes.lamp,a.hermes.lamp==="active"?"WORKING":a.hermes.lamp==="off"?"STOPPED":a.hermes.whatsapp==="connected"?"WA ✓":"IDLE");
  setLamp("orca",a.orca.lamp,a.orca.lamp==="off"?"CLOSED":"PI "+a.orca.piActive+"/"+a.orca.pi+" · "+a.orca.active+"/"+a.orca.terminals);
- var l=f.llm;$("llm").className="llm"+(l.loaded?" loaded":"");$("llmM").textContent=l.loaded?"LOADED · "+l.model:"NO MODEL LOADED";
- var p=$("llmP");p.className="p "+l.phase;p.textContent=l.phase==="writing"?"WRITING":l.phase==="reading"?"READING "+(l.progress!=null?Math.round(l.progress*100)+"%":""):l.phase==="idle"?"IDLE":"—";
+ var l=f.llm,st=f.strata,stActive=isGenerating(st),shown=stActive?st:l;
+ $("llm").className="llm"+(stActive||l.loaded?" loaded":"");
+ $("llmM").textContent=stActive?"STRATA · ACTIVE":l.loaded?"LOADED · "+l.model:"NO MODEL LOADED";
+ var p=$("llmP");p.className="p "+shown.phase;p.textContent=shown.phase==="writing"?"WRITING":shown.phase==="reading"?"READING "+(shown.progress!=null?Math.round(shown.progress*100)+"%":""):shown.phase==="idle"?"IDLE":"—";
  $("tpsSub").textContent="LAST OUT "+(l.lastTps!=null?l.lastTps.toFixed(1):"—");$("pre").textContent="LAST IN "+(l.prefillTps!=null?Math.round(l.prefillTps):"—");totalizer();
+ var stRate=$("strataRate"),olRate=$("ollamaRate"),stFlow=throughput(st),olFlow=throughput(l);
+ stRate.style.color=C.amber;olRate.style.color=C.white;
+ stRate.textContent="STRATA "+(!st?"OFFLINE":stFlow.direction?stFlow.direction+" "+stFlow.text:"IDLE");
+ olRate.textContent="OLLAMA "+(olFlow.direction?olFlow.direction+" "+olFlow.text:l.phase==="unknown"?"—":"IDLE");
  cores=f.live.cores||[];$("coreN").textContent=cores.length?cores.length+" × "+(f.live.cpu!=null?Math.round(f.live.cpu)+"%":"—"):"—";
  var t=f.temp;$("therm").textContent=(t.thermal||"—").toUpperCase();$("therm").style.color=t.thermal==="nominal"?C.green:t.thermal==="fair"?C.cyan:t.thermal==="serious"?C.amber:t.thermal==="critical"?C.red:C.dim;
  $("tAvg").textContent=(t.avg!=null?t.avg.toFixed(0):"—")+" / "+(t.hottest!=null?t.hottest.toFixed(0):"—")+" °C";
@@ -256,12 +289,20 @@ function frame(now){
  var dt=Math.min(100,now-lastT);lastT=now;var k=1-Math.exp(-dt/140),kt=1-Math.exp(-dt/400);
  var sweep=Math.max(0,1-(now-boot)/1800),sv=sweep>0?Math.sin(Math.min(1,(now-boot)/900)*Math.PI/2)*(sweep>0.5?1:sweep*2):0;
  var f=data,cpu=f&&f.live.cpu!=null?f.live.cpu:0,gpu=f&&f.live.gpu!=null?f.live.gpu:0,tps=f&&f.llm.tps!=null?f.llm.tps:0,temp=f&&f.temp.max!=null?f.temp.max:30;
- anim.cpu=lerp(anim.cpu,sweep>0?100*sv:cpu,k);anim.gpu=lerp(anim.gpu,sweep>0?100*sv:gpu,k);anim.tps=lerp(anim.tps,sweep>0?40*sv:tps,kt);anim.temp=lerp(anim.temp,sweep>0?30+80*sv:temp,kt);var split=f&&f.llm.phase==="writing"&&f.llm.tps!=null?Math.min(1,f.llm.tps/40):f&&f.llm.phase==="reading"&&f.llm.prefillTps!=null?-Math.min(1,f.llm.prefillTps/1000):0;anim.split=lerp(anim.split,sweep>0?(sv*2-1)*(sweep>0.5?1:sweep*2):split,kt);
- if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);add("tps",f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps:0);add("temp",f.temp.max);add("tin",f.llm.phase==="reading"&&f.llm.prefillTps!=null?f.llm.prefillTps:0);if(range==="live")updatePeaks();}}
+ anim.cpu=lerp(anim.cpu,sweep>0?100*sv:cpu,k);anim.gpu=lerp(anim.gpu,sweep>0?100*sv:gpu,k);anim.tps=lerp(anim.tps,sweep>0?40*sv:tps,kt);anim.temp=lerp(anim.temp,sweep>0?30+80*sv:temp,kt);var split=needlePosition(f&&f.llm,ollamaScale);
+ anim.split=lerp(anim.split,split,kt);
+ var st=f&&f.strata,stActive=isGenerating(st),display=throughput(stActive?st:f&&f.llm);
+ var stSplit=needlePosition(st,strataScale);
+ anim.strataSplit=lerp(anim.strataSplit,sweep>0&&!stActive?(sv*2-1)*(sweep>0.5?1:sweep*2):stSplit,kt);
+ if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);var rate=function(llm,phase,key){return llm&&llm.phase===phase&&llm[key]!=null?llm[key]:0;};
+ add("tps",Math.max(rate(f.llm,"writing","tps"),rate(f.strata,"writing","tps")));
+ add("temp",f.temp.max);
+ add("tin",Math.max(rate(f.llm,"reading","prefillTps"),rate(f.strata,"reading","prefillTps")));if(range==="live")updatePeaks();}}
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
-  splitGauge($("gTps"),{p:anim.split,label:"IN·OUT",text:f&&f.llm.phase==="writing"&&f.llm.tps!=null?f.llm.tps.toFixed(1):f&&f.llm.phase==="reading"?(f.llm.prefillTps!=null?String(Math.round(f.llm.prefillTps)):"READ"):"IDLE"});
+  splitGauge($("gTps"),{ollama:anim.split,strata:anim.strataSplit,primary:stActive?"strata":"ollama",
+   label:"IN·OUT",text:display.text,direction:display.direction,measured:display.measured});
   gauge($("gTemp"),{min:30,max:110,caution:85,warning:95,value:f&&f.temp.max!=null||sweep>0?anim.temp:null,text:f&&f.temp.max!=null?anim.temp.toFixed(1):"—",label:"CHIP",unit:"°C",labels:true});
   vu($("vu"),now,dt);spark($("sCpu"),series("cpu"),0,100,C.green,false);spark($("sGpu"),series("gpu"),0,100,C.green,false);spark2($("sTps"),series("tps"),series("tin"));spark($("sTemp"),series("temp"),30,110,C.green,false);
  }

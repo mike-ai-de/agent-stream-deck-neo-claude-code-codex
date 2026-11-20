@@ -22,9 +22,15 @@ export class FlightRecorder{
   this.insert=this.db.prepare("INSERT OR REPLACE INTO samples(t,cpu,gpu,tps,temp,swap,tps_in) VALUES(?,?,?,?,?,?,?)");
  }
  record(f:CockpitFrame,now=f.t):void{
-  if(!f.sources.sensors&&!f.sources.llm)return;
-  const tps=f.llm.phase==="writing"?f.llm.tps:f.llm.phase==="unknown"?null:0;
-  const tpsIn=f.llm.phase==="reading"?f.llm.prefillTps:f.llm.phase==="unknown"?null:0;
+  if(!f.sources.sensors&&!f.sources.llm&&!f.strata)return;
+  const peak=(phase:"reading"|"writing",key:"tps"|"prefillTps")=>{
+   const ollama=f.llm.phase===phase?f.llm[key]:null;
+   const strata=f.strata?.phase===phase?f.strata[key]:null;
+   if(ollama!=null||strata!=null)return Math.max(ollama??0,strata??0);
+   return f.llm.phase==="unknown"&&(!f.strata||f.strata.phase==="unknown")?null:0;
+  };
+  const tps=peak("writing","tps");
+  const tpsIn=peak("reading","prefillTps");
   this.insert.run(Math.floor(now/1000)*1000,f.live.cpu,f.live.gpu,tps,f.temp.max,f.memory.swapBytes,tpsIn);
   if(now-this.lastPrune>3600e3)this.prune(now);
  }

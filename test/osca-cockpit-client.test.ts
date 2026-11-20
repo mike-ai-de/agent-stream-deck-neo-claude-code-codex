@@ -1,7 +1,7 @@
 import { describe,it,expect } from "vitest";
 import vm from "node:vm";
 import { cockpitHtml } from "../src/osca/cockpit-page.js";
-import { cockpitFrame } from "../src/osca/cockpit.js";
+import { cockpitFrame,parseStrataMetrics } from "../src/osca/cockpit.js";
 
 // Runs the real cockpit client script against a minimal fake DOM: catches runtime errors and name collisions
 // (e.g. a variable overwriting a function) that type checks cannot see.
@@ -33,9 +33,33 @@ describe("cockpit client script",()=>{
   const fnNames=[...script.matchAll(/^function ([A-Za-z_$][\w$]*)\(/gm)].map(m=>m[1]);expect(fnNames.length).toBeGreaterThan(10);
   vm.runInContext(script,sandbox);
   for(const n of fnNames)expect(typeof sandbox[n],`function ${n} overwritten`).toBe("function");
+  let dial: any;
+  const drawDial=sandbox.splitGauge;
+  sandbox.splitGauge=(canvas:unknown,options:unknown)=>{dial=options;drawDial(canvas,options);};
   const frame=cockpitFrame({sensors:{t:Date.now(),cpu:12,cores:[10,20,30],gpu:99,temp:{max:66,avg:60,hottest:70,sensors:60},thermal:"fair",swap:0,pressure:1},llm:{phase:"reading",tps:null,lastTps:15,prefillTps:480,progress:0.4},orca:null,status:null,
    tokens:{init:"2026-10-25",at:Date.now(),ranges:{h1:{requests:1,inNew:1,inTotal:2,out:3},h24:{requests:1,inNew:1,inTotal:2,out:3},month:{requests:1,inNew:1,inTotal:2,out:3},year:{requests:1,inNew:1,inTotal:2,out:3},total:{requests:5496,inNew:41012027,inTotal:250782518,out:7151608}},perDay:{inNew:1,out:1}}});
-  const run=(n:number)=>{for(let i=0;i<n;i++){const f=raf.shift();if(!f)break;try{f(Date.now()+i*300);}catch(e){errors.push(e);}}};
+  let frameTime=Date.now()+1800;
+  const run=(n:number)=>{for(let i=0;i<n;i++){const f=raf.shift();if(!f)break;try{f(frameTime+=300);}catch(e){errors.push(e);}}};
+  sandbox.apply(frame);run(8);
+  expect(document.getElementById("strataRate").textContent).toBe("STRATA OFFLINE");
+  expect(dial).toMatchObject({primary:"ollama",direction:"IN",text:"480"});
+  sandbox.apply({...frame,strata:parseStrataMetrics({live:{state:"generating",tok_s:108}})});
+  run(16);
+  expect(document.getElementById("strataRate").textContent).toBe("STRATA OUT 108.0");
+  expect(dial).toMatchObject({primary:"strata",direction:"OUT",text:"108.0",measured:true});
+  expect(document.getElementById("llmM").textContent).toBe("STRATA · ACTIVE");
+  expect(dial.ollama).toBeLessThan(0);
+  expect(sandbox.anim.strataSplit).toBeGreaterThan(0.5);
+  sandbox.apply({...frame,strata:parseStrataMetrics({live:{state:"reading",prefill_tok_s_mean:1629}})});
+  run(16);
+  expect(document.getElementById("strataRate").textContent).toBe("STRATA IN 1629");
+  expect(dial).toMatchObject({primary:"strata",direction:"IN",text:"1629"});
+  expect(dial.strata).toBeLessThan(-0.75);
+  const idleOllama={...frame.llm,phase:"idle" as const};
+  sandbox.apply({...frame,llm:idleOllama,strata:parseStrataMetrics({live:{state:"generating"}})});run(8);
+  expect(dial).toMatchObject({primary:"strata",direction:"OUT",text:"—",measured:false});
+  sandbox.apply({...frame,llm:idleOllama,strata:parseStrataMetrics({live:{state:"idle"}})});run(8);
+  expect(dial).toMatchObject({direction:"",text:"IDLE"});
   sandbox.apply(frame);run(8);
   for(const r of ["1h","24h","7d","30d","live"]){try{handlers["rng-"+r]();}catch(e){errors.push(e);}await new Promise(res=>setImmediate(res));run(3);}
   for(const t of ["h1","h24","month","year","total"]){try{handlers["trng-"+t]();}catch(e){errors.push(e);}}
