@@ -50,6 +50,7 @@ canvas{display:block;width:100%}
 .g{aspect-ratio:1/0.82}.vu{height:74px;margin-top:8px}.spark{height:40px;margin-top:2px}.inst{position:relative}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .inst{padding-top:16px}
+.sub[hidden]{display:none}
 .sub{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);letter-spacing:.1em;margin-top:2px}
 .sub b{color:var(--white);font-weight:600}
 .fuel{display:grid;gap:7px;padding-top:16px}
@@ -99,7 +100,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="eng"><div><canvas class="g" id="gCpu"></canvas><canvas class="spark" id="sCpu"></canvas></div><div><canvas class="g" id="gGpu"></canvas><canvas class="spark" id="sGpu"></canvas></div></div>
   <canvas class="vu" id="vu"></canvas><div class="sub"><span>CPU CORES</span><span><b class="mono" id="coreN">—</b></span></div></section>
  <section class="panel"><div class="row2">
-  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><div class="sub"><b class="mono" id="strataRate">STRATA —</b><span class="mono" id="ollamaRate">OLLAMA —</span></div><canvas class="spark" id="sTps"></canvas><div class="sub"><span id="tpsSub">LAST —</span><span><b class="mono" id="pre">—</b></span></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
+  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><div class="sub"><b class="mono" id="strataRate">STRATA —</b><span class="mono" id="ollamaRate">OLLAMA —</span></div><canvas class="spark" id="sTps"></canvas><div class="sub" id="lastRates" hidden><span id="tpsSub" hidden></span><b class="mono" id="pre" hidden></b></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
@@ -124,7 +125,6 @@ var data=null,lastFrame=0,boot=performance.now();
 var anim={cpu:0,gpu:0,tps:0,temp:30,split:0,strataSplit:0};
 var strataScale={input:2000,output:200},ollamaScale={input:1000,output:40};
 var cores=[],peaks=[],peakT=[];
-var HIST=240,hist={cpu:[],gpu:[],tps:[],temp:[],tin:[]};
 function lerp(a,b,k){return a+(b-a)*k;}
 function zone(v,c,w){return v>=w?C.red:v>=c?C.amber:C.green;}
 var ZOOM=1;
@@ -208,7 +208,7 @@ function spark2(cv,outArr,inArr){
  x.strokeStyle="rgba(255,255,255,.14)";x.lineWidth=1;x.beginPath();x.moveTo(0,mid);x.lineTo(w,mid);x.stroke();
  var vo=outArr.filter(function(v){return v!=null;}),vi=inArr.filter(function(v){return v!=null;});
  var mo=Math.max(25,Math.max.apply(null,vo.concat([0]))*1.15),mi=Math.max(1000,Math.max.apply(null,vi.concat([0]))*1.1);
- function draw(arr,max,col,up){var n=range==="live"?HIST:arr.length,step=w/Math.max(1,n-1),open=false;if(arr.length<2)return;x.save();x.shadowColor=col;x.shadowBlur=6;x.strokeStyle=col;x.lineWidth=1.4;x.beginPath();
+ function draw(arr,max,col,up){var n=range==="live"?60:arr.length,step=w/Math.max(1,n-1),open=false;if(arr.length<2)return;x.save();x.shadowColor=col;x.shadowBlur=6;x.strokeStyle=col;x.lineWidth=1.4;x.beginPath();
   for(var i=0;i<arr.length;i++){var v=arr[i];if(v==null){open=false;continue;}var px=w-(arr.length-1-i)*step,py=up?mid-1-(Math.min(v,max)/max)*(mid-2):mid+1+(Math.min(v,max)/max)*(mid-2);if(!open){x.moveTo(px,py);open=true;}else x.lineTo(px,py);}
   x.stroke();x.restore();}
  draw(outArr,mo,C.cyan,true);draw(inArr,mi,C.magenta,false);
@@ -239,21 +239,41 @@ function vu(cv,now,dt){
 function spark(cv,arr,min,max,color,auto){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);var vals=arr.filter(function(v){return v!=null;});if(auto)max=Math.max(max,Math.max.apply(null,vals.concat([0]))*1.15);
  x.strokeStyle="rgba(255,255,255,.06)";x.lineWidth=1;for(var k=1;k<4;k++){x.beginPath();x.moveTo(0,h*k/4);x.lineTo(w,h*k/4);x.stroke();}
- if(vals.length<2)return;var n=range==="live"?HIST:arr.length,step=w/Math.max(1,n-1),y=function(v){return h-2-Math.max(0,Math.min(1,(v-min)/(max-min)))*(h-4);};
+ if(vals.length<2)return;var n=range==="live"?60:arr.length,step=w/Math.max(1,n-1),y=function(v){return h-2-Math.max(0,Math.min(1,(v-min)/(max-min)))*(h-4);};
  var pts=[];for(var i=0;i<arr.length;i++)pts.push(arr[i]==null?null:[w-(arr.length-1-i)*step,y(arr[i])]);
  x.save();x.shadowColor=color;x.shadowBlur=8;x.strokeStyle=color;x.lineWidth=1.6;x.beginPath();var open=false;
  pts.forEach(function(p){if(!p){open=false;return;}if(!open){x.moveTo(p[0],p[1]);open=true;}else x.lineTo(p[0],p[1]);});x.stroke();x.restore();
  var gr=x.createLinearGradient(0,0,0,h);gr.addColorStop(0,color+"40");gr.addColorStop(1,color+"00");x.fillStyle=gr;
  var seg=[];pts.concat([null]).forEach(function(p){if(p){seg.push(p);return;}if(seg.length>1){x.beginPath();x.moveTo(seg[0][0],h);seg.forEach(function(q){x.lineTo(q[0],q[1]);});x.lineTo(seg[seg.length-1][0],h);x.closePath();x.fill();}seg=[];});
 }
-var range="live",recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]},recTimer=null,recPeak={out:null,in:null};
-function loadRange(){if(range==="live")return;fetch("/api/cockpit/history?range="+range,{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(d){if(!d||!d.ok)return;var rec={cpu:[],gpu:[],tps:[],temp:[],tin:[]},prev=null;
- d.points.forEach(function(p){if(prev!==null&&p[0]-prev>d.step*1.5){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p.length>5?p[5]:null);});recorded=rec;recPeak=d.peak||{out:null,in:null};updatePeaks();}).catch(function(){});}
-function updatePeaks(){var mx=function(a){var v=a.filter(function(x){return x!=null&&x>0;});return v.length?Math.max.apply(null,v):null;};
- var po=range==="live"?mx(hist.tps):recPeak.out,pi=range==="live"?mx(hist.tin):recPeak.in;
+function emptySeries(){return {cpu:[],gpu:[],tps:[],temp:[],tin:[]};}
+var range="live",recorded=emptySeries(),recTimer=null,recPeak={out:null,in:null},rangeRequest=0;
+function loadRange(){
+ var selected=range,request=++rangeRequest;
+ fetch("/api/cockpit/history?range="+(selected==="live"?"1m":selected),{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+  if(!d||!d.ok||request!==rangeRequest)return;
+  var rec=emptySeries(),prev=null;
+  d.points.forEach(function(p){
+   if(prev!==null){for(var missing=prev+d.step;missing<p[0];missing+=d.step){rec.cpu.push(null);rec.gpu.push(null);rec.tps.push(null);rec.temp.push(null);rec.tin.push(null);}}
+   prev=p[0];rec.cpu.push(p[1]);rec.gpu.push(p[2]);rec.tps.push(p[3]);rec.temp.push(p[4]);rec.tin.push(p[5]??null);
+  });
+  recorded=rec;recPeak=d.peak||{out:null,in:null};updatePeaks();updateLastRates(d.last);
+ }).catch(function(){});
+}
+function scheduleRange(){clearInterval(recTimer);loadRange();recTimer=setInterval(loadRange,range==="live"?2000:30000);}
+function updateLastRates(last){
+ var out=last?.out,input=last?.in;
+ $("lastRates").hidden=out==null&&input==null;
+ $("tpsSub").hidden=out==null;$("pre").hidden=input==null;
+ if(out!=null)$("tpsSub").textContent="LAST OUT "+out.toFixed(1);
+ if(input!=null)$("pre").textContent="LAST IN "+Math.round(input).toLocaleString("de-DE");
+}
+function updatePeaks(){
+ var po=recPeak.out,pi=recPeak.in;
  $("pkOut").textContent=po!=null&&po>0?po.toFixed(1):"—";$("pkIn").textContent=pi!=null&&pi>0?Math.round(pi).toLocaleString("de-DE"):"—";
- $("pkR").textContent="PEAK T/S · "+({live:"LAST MINUTE","1h":"LAST HOUR","24h":"LAST 24 H","7d":"LAST 7 DAYS","30d":"LAST 30 DAYS"})[range];}
-function series(k){return range==="live"?hist[k]:recorded[k];}
+ $("pkR").textContent="PEAK T/S · "+({live:"LAST MINUTE","1h":"LAST HOUR","24h":"LAST 24 H","7d":"LAST 7 DAYS","30d":"LAST 30 DAYS"})[range];
+}
+function series(k){return recorded[k];}
 function setLamp(id,lamp,sub){var el=$("l-"+id);el.className="lamp "+lamp;$("s-"+id).textContent=sub;}
 function pad(n){return (n<10?"0":"")+n;}
 function when(ms){if(!ms)return "—";var d=new Date(ms);return "R "+pad(d.getDate())+"."+pad(d.getMonth()+1)+". "+pad(d.getHours())+":"+pad(d.getMinutes());}
@@ -269,7 +289,7 @@ function apply(f){
  $("llm").className="llm"+(stActive||l.loaded?" loaded":"");
  $("llmM").textContent=stActive?"STRATA · ACTIVE":l.loaded?"LOADED · "+l.model:"NO MODEL LOADED";
  var p=$("llmP");p.className="p "+shown.phase;p.textContent=shown.phase==="writing"?"WRITING":shown.phase==="reading"?"READING "+(shown.progress!=null?Math.round(shown.progress*100)+"%":""):shown.phase==="idle"?"IDLE":"—";
- $("tpsSub").textContent="LAST OUT "+(l.lastTps!=null?l.lastTps.toFixed(1):"—");$("pre").textContent="LAST IN "+(l.prefillTps!=null?Math.round(l.prefillTps):"—");totalizer();
+ totalizer();
  var stRate=$("strataRate"),olRate=$("ollamaRate"),stFlow=throughput(st),olFlow=throughput(l);
  stRate.style.color=C.amber;olRate.style.color=C.white;
  stRate.textContent="STRATA "+(!st?"OFFLINE":stFlow.direction?stFlow.direction+" "+stFlow.text:"IDLE");
@@ -284,7 +304,7 @@ function apply(f){
  var e=$("eicas");e.textContent="";if(!f.alerts.length){var d=document.createElement("div");d.className="normal";d.textContent="ALL SYSTEMS NORMAL";e.appendChild(d);}
  f.alerts.slice(0,4).forEach(function(al){var d=document.createElement("div");d.className=al.level;d.textContent=(al.level==="warning"?"▲ ":"● ")+al.text;e.appendChild(d);});
 }
-var lastT=performance.now(),lastHist=0;
+var lastT=performance.now();
 function frame(now){
  var dt=Math.min(100,now-lastT);lastT=now;var k=1-Math.exp(-dt/140),kt=1-Math.exp(-dt/400);
  var sweep=Math.max(0,1-(now-boot)/1800),sv=sweep>0?Math.sin(Math.min(1,(now-boot)/900)*Math.PI/2)*(sweep>0.5?1:sweep*2):0;
@@ -294,10 +314,7 @@ function frame(now){
  var st=f&&f.strata,stActive=isGenerating(st),display=throughput(stActive?st:f&&f.llm);
  var stSplit=needlePosition(st,strataScale);
  anim.strataSplit=lerp(anim.strataSplit,sweep>0&&!stActive?(sv*2-1)*(sweep>0.5?1:sweep*2):stSplit,kt);
- if(now-lastHist>250){lastHist=now;if(f){var add=function(k,v){if(v==null)return;hist[k].push(v);if(hist[k].length>HIST)hist[k].shift();};add("cpu",f.live.cpu);add("gpu",f.live.gpu);var rate=function(llm,phase,key){return llm&&llm.phase===phase&&llm[key]!=null?llm[key]:0;};
- add("tps",Math.max(rate(f.llm,"writing","tps"),rate(f.strata,"writing","tps")));
- add("temp",f.temp.max);
- add("tin",Math.max(rate(f.llm,"reading","prefillTps"),rate(f.strata,"reading","prefillTps")));if(range==="live")updatePeaks();}}
+
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
@@ -314,8 +331,9 @@ setInterval(function(){var d=new Date();$("clock").textContent=pad(d.getHours())
 var es=null,poll=null;
 function startPoll(){if(poll)return;poll=setInterval(function(){fetch("/api/cockpit",{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(f){if(f&&f.ok)apply(f);}).catch(function(){});},1000);}
 function connect(){if(!window.EventSource){startPoll();return;}es=new EventSource("/api/cockpit/stream");es.onmessage=function(ev){try{apply(JSON.parse(ev.data));if(poll){clearInterval(poll);poll=null;}}catch(e){}};es.onerror=function(){startPoll();};}
-connect();
-document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"){boot=performance.now();if(!es||es.readyState===2){if(es)es.close();connect();}lock();}});
+connect();scheduleRange();
+window.addEventListener("pageshow",function(e){if(e.persisted)scheduleRange();});
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"){boot=performance.now();if(!es||es.readyState===2){if(es)es.close();connect();}lock();scheduleRange();}else{clearInterval(recTimer);rangeRequest++;}});
 var wl=null;function lock(){if(!("wakeLock" in navigator))return;navigator.wakeLock.request("screen").then(function(l){wl=l;}).catch(function(){});}
 lock();document.addEventListener("click",function(){if(!wl||wl.released)lock();});
 function sysView(){fetch("/api/mobile",{cache:"no-store"}).then(function(r){return r.json();}).then(function(m){var g=$("sysG");g.textContent="";if(!m.ok){g.innerHTML="<div class=hint>NEO OFFLINE</div>";return;}
@@ -327,7 +345,7 @@ function sysView(){fetch("/api/mobile",{cache:"no-store"}).then(function(r){retu
  $("sysT").textContent="SYSTEM STATUS · v"+m.version;wall();}).catch(function(){});}
 var sysTimer=null;
 Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(b){b.onclick=function(){tokRange=b.getAttribute("data-t");Array.prototype.forEach.call(document.querySelectorAll("#trng button"),function(o){o.className=o===b?"on":"";});totalizer();};});
-Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded={cpu:[],gpu:[],tps:[],temp:[],tin:[]};recPeak={out:null,in:null};updatePeaks();clearInterval(recTimer);if(range!=="live"){loadRange();recTimer=setInterval(loadRange,30000);}};});
+Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(b){b.onclick=function(){range=b.getAttribute("data-r");Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(o){o.className=o===b?"on":"";});recorded=emptySeries();recPeak={out:null,in:null};updatePeaks();scheduleRange();};});
 $("bSys").onclick=function(){$("pfd").hidden=true;$("pfd").style.display="none";$("sys").style.display="block";$("bSys").className="on";$("bPfd").className="";sysView();sysTimer=setInterval(sysView,5000);wall();};
 $("bPfd").onclick=function(){$("pfd").hidden=false;$("pfd").style.display="";$("sys").style.display="none";$("bPfd").className="on";$("bSys").className="";clearInterval(sysTimer);boot=performance.now();wall();};
 // Big-screen mode (e.g. Mac Studio display): scale the whole deck to fill the window, re-rendering canvases at full resolution.

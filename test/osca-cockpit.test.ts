@@ -125,6 +125,24 @@ describe("token ledger integration",()=>{
 });
 
 describe("flight recorder",()=>{
+ it("restores one-minute Strata graphs and keeps the latest measured rates past the window",()=>{
+  const recorder=new FlightRecorder(":memory:");
+  const now=Date.now();
+  const base=cockpitFrame({sensors:sensors(),llm:null,orca:null,status:null});
+  const strata={phase:"reading" as const,tps:null,lastTps:null,prefillTps:1714,progress:null};
+  recorder.record({...base,strata},now-70000);
+  recorder.record({...base,strata:{...strata,phase:"writing",tps:133.3}},now-1000);
+  recorder.record({...base,strata:{...strata,phase:"idle"}},now);
+  const live=recorder.series("1m",240,now+100);
+  expect(live.step).toBe(1000);
+  expect(live.points.map(point=>point[3])).toEqual([133.3,0]);
+  expect(live.peak).toEqual({out:133.3,in:0});
+  expect(live.last).toEqual({out:133.3,in:1714});
+  expect(recorder.series("1h",240,now+100).peak).toEqual({out:133.3,in:1714});
+  expect(recorder.series("1m",240,now+3601000).last).toEqual({out:null,in:null});
+  recorder.close();
+ });
+
  it("stores one row per second, buckets ranges and prunes old data",()=>{
   const r=new FlightRecorder(":memory:",1);
   const f=cockpitFrame({sensors:sensors(),llm:{phase:"writing",tps:16,lastTps:16,prefillTps:null,progress:null},orca:null,status:status(),now});
@@ -143,6 +161,7 @@ describe("flight recorder",()=>{
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   try{
    const port=(server.address() as {port:number}).port,url=`http://127.0.0.1:${port}`;options.port=port;
+   const live=await (await fetch(url+"/api/cockpit/history?range=1m")).json();expect(live).toMatchObject({ok:true,step:1000,last:{in:null,out:null}});expect(live.points).toHaveLength(1);
    const h=await (await fetch(url+"/api/cockpit/history?range=24h")).json();expect(h.ok).toBe(true);expect(h.points).toHaveLength(1);
    expect((await fetch(url+"/api/cockpit/history?range=forever")).status).toBe(400);
    const m=await (await fetch(url+"/manifest.webmanifest")).json();expect(m).toMatchObject({short_name:"OSCA",display:"standalone",start_url:"/cockpit"});

@@ -7,7 +7,7 @@ import type {CockpitFrame} from "./cockpit.js";
 // Only aggregate numbers are stored. Rows older than the retention period are deleted automatically.
 // Roughly 4 MB per day; 30 days stay well below 150 MB.
 
-export const RANGES:Record<string,number>={"1h":3600e3,"24h":86400e3,"7d":7*86400e3,"30d":30*86400e3};
+export const RANGES:Record<string,number>={"1m":60e3,"1h":3600e3,"24h":86400e3,"7d":7*86400e3,"30d":30*86400e3};
 export type SeriesPoint=[t:number,cpu:number|null,gpu:number|null,tps:number|null,temp:number|null,tpsIn:number|null];
 
 export class FlightRecorder{
@@ -35,14 +35,16 @@ export class FlightRecorder{
   if(now-this.lastPrune>3600e3)this.prune(now);
  }
  prune(now=Date.now()):number{this.lastPrune=now;return Number(this.db.prepare("DELETE FROM samples WHERE t<?").run(now-this.retentionDays*86400e3).changes);}
- series(range:string,buckets=240,now=Date.now()):{range:string;step:number;from:number;points:SeriesPoint[];peak:{out:number|null;in:number|null}}{
+ series(range:string,buckets=240,now=Date.now()):{range:string;step:number;from:number;points:SeriesPoint[];peak:{out:number|null;in:number|null};last:{out:number|null;in:number|null}}{
   const span=RANGES[range];if(!span)throw new Error("Unknown range");
   const step=Math.max(1000,Math.ceil(span/buckets/1000)*1000),from=now-span;
   const rows=this.db.prepare("SELECT (t/CAST(? AS INTEGER))*CAST(? AS INTEGER) AS b,avg(cpu) cpu,avg(gpu) gpu,avg(tps) tps,avg(temp) temp,avg(tps_in) tps_in FROM samples WHERE t>=? GROUP BY b ORDER BY b").all(step,step,from) as any[];
   const r=(v:unknown)=>typeof v==="number"?Math.round(v*10)/10:null;
   // Peaks use the raw one-second samples, not the bucket averages.
   const pk=this.db.prepare("SELECT max(tps) o,max(tps_in) i FROM samples WHERE t>=?").get(from) as any;
-  return {range,step,from,peak:{out:r(pk?.o),in:r(pk?.i)},points:rows.map(x=>[Number(x.b),r(x.cpu),r(x.gpu),r(x.tps),r(x.temp),r(x.tps_in)] as SeriesPoint)};
+  const lastOut=this.db.prepare("SELECT tps FROM samples WHERE t>=? AND tps>0 ORDER BY t DESC LIMIT 1").get(now-RANGES["1h"]);
+  const lastIn=this.db.prepare("SELECT tps_in FROM samples WHERE t>=? AND tps_in>0 ORDER BY t DESC LIMIT 1").get(now-RANGES["1h"]);
+  return {range,step,from,last:{out:r(lastOut?.tps),in:r(lastIn?.tps_in)},peak:{out:r(pk?.o),in:r(pk?.i)},points:rows.map(x=>[Number(x.b),r(x.cpu),r(x.gpu),r(x.tps),r(x.temp),r(x.tps_in)] as SeriesPoint)};
  }
  count():number{return Number((this.db.prepare("SELECT count(*) n FROM samples").get() as any).n);}
  close():void{this.db.close();}

@@ -15,7 +15,7 @@ function fakeDom(){
   getContext(){return ctx2d;},classList:{toggle(){},add(){},remove(){}},addEventListener(){},set onclick(f:()=>void){handlers[id]=f;}};elements.set(id,e);return e;};
  const rangeButtons=["live","1h","24h","7d","30d"].map(r=>{const b=el("rng-"+r);b.attrs["data-r"]=r;return b;});
  const totalButtons=["h1","h24","month","year","total"].map(t=>{const b=el("trng-"+t);b.attrs["data-t"]=t;return b;});
- const document:any={getElementById:el,createElement:(t:string)=>el("new-"+t+Math.random()),addEventListener(){},visibilityState:"visible",documentElement:el("html"),
+ const document:any={getElementById:el,createElement:(t:string)=>el("new-"+t+Math.random()),addEventListener(name:string,callback:()=>void){handlers[name]=callback;},visibilityState:"visible",documentElement:el("html"),
   querySelector:(s:string)=>el(s),querySelectorAll:(s:string)=>s==="#rng button"?rangeButtons:s==="#trng button"?totalButtons:[]};
  return {document,handlers};
 }
@@ -24,7 +24,7 @@ describe("cockpit client script",()=>{
  it("runs, draws, applies live data and switches all ranges without errors or overwritten functions",async()=>{
   const html=cockpitHtml("n");const script=html.split('<script nonce="n">')[1].split("</script>")[0];
   const {document,handlers}=fakeDom();const raf:((t:number)=>void)[]=[];const fetched:string[]=[];const errors:unknown[]=[];
-  const history={ok:true,range:"1h",step:15000,from:0,peak:{out:18.3,in:612},points:[[1,10,99,15,60,0],[2,12,98,16,61,0],[3,null,null,null,null,null],[4,11,97,0,62,540]]};
+  let history={ok:true,range:"1h",step:15000,from:0,peak:{out:18.3,in:612},last:{out:15.2,in:540},points:[[1,10,99,15,60,0],[2,12,98,16,61,0],[3,null,null,null,null,null],[4,11,97,0,62,540]]};
   const sandbox:any={document,console,Math,Date,JSON,Number,String,Array,Object,isNaN,
    window:{devicePixelRatio:2,innerWidth:393,innerHeight:852,addEventListener(){},EventSource:undefined},navigator:{},performance:{now:()=>Date.now()},
    requestAnimationFrame:(f:(t:number)=>void)=>{raf.push(f);},setInterval:()=>0,clearInterval(){},setTimeout:()=>0,clearTimeout(){},
@@ -33,6 +33,18 @@ describe("cockpit client script",()=>{
   const fnNames=[...script.matchAll(/^function ([A-Za-z_$][\w$]*)\(/gm)].map(m=>m[1]);expect(fnNames.length).toBeGreaterThan(10);
   vm.runInContext(script,sandbox);
   for(const n of fnNames)expect(typeof sandbox[n],`function ${n} overwritten`).toBe("function");
+  await new Promise(res=>setImmediate(res));
+  expect(document.getElementById("tpsSub").textContent).toBe("LAST OUT 15.2");
+  expect(document.getElementById("pre").textContent).toBe("LAST IN 540");
+  expect(document.getElementById("pkOut").textContent).toBe("18.3");
+  expect(document.getElementById("pkIn").textContent).toBe("612");
+  expect(sandbox.series("cpu")).toEqual([10,12,null,11]);
+  document.visibilityState="hidden";handlers.visibilitychange();
+  history={...history,last:{out:21.8,in:780},points:[[5,22,91,21.8,64,780]]};
+  document.visibilityState="visible";handlers.visibilitychange();
+  await new Promise(res=>setImmediate(res));
+  expect(sandbox.series("tps")).toEqual([21.8]);
+  expect(document.getElementById("tpsSub").textContent).toBe("LAST OUT 21.8");
   let dial: any;
   const drawDial=sandbox.splitGauge;
   sandbox.splitGauge=(canvas:unknown,options:unknown)=>{dial=options;drawDial(canvas,options);};
@@ -64,7 +76,7 @@ describe("cockpit client script",()=>{
   for(const r of ["1h","24h","7d","30d","live"]){try{handlers["rng-"+r]();}catch(e){errors.push(e);}await new Promise(res=>setImmediate(res));run(3);}
   for(const t of ["h1","h24","month","year","total"]){try{handlers["trng-"+t]();}catch(e){errors.push(e);}}
   expect(errors).toEqual([]);
-  expect(fetched.filter(u=>u.includes("/api/cockpit/history")).map(u=>u.split("=")[1])).toEqual(["1h","24h","7d","30d"]);
+  expect(fetched.filter(u=>u.includes("/api/cockpit/history")).map(u=>u.split("=")[1])).toEqual(["1m","1m","1h","24h","7d","30d","1m"]);
   expect(document.getElementById("pkR").textContent).toBe("PEAK T/S · LAST MINUTE");
   expect(document.getElementById("oIn").attrs["data-n"]).toBe("10");
  });
