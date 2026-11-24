@@ -13,6 +13,7 @@ export type Level="ok"|"caution"|"warning";
 export type LlmPhase="idle"|"reading"|"writing"|"unknown";
 export interface SensorFrame{t:number;cpu?:number;cores?:number[];gpu?:number;temp?:{max:number;avg:number;hottest:number;sensors:number};thermal?:string;swap?:number;pressure?:number}
 export interface LlmState{phase:LlmPhase;tps:number|null;lastTps:number|null;prefillTps:number|null;progress:number|null}
+export interface LoadedEngine{kind:"ollama"|"strata"|"inkling";model:string}
 export interface OrcaState{running:boolean;terminals:number;active:number;pi:number;piActive:number}
 export interface Alert{level:Exclude<Level,"ok">;text:string}
 export interface CockpitFrame{
@@ -20,7 +21,7 @@ export interface CockpitFrame{
  live:{cpu:number|null;cores:number[];gpu:number|null;at:number|null};
  temp:{max:number|null;avg:number|null;hottest:number|null;thermal:string;level:Level};
  memory:{swapBytes:number|null;pressure:"NORMAL"|"WARN"|"CRITICAL"|null;level:Level};
- llm:LlmState&{model:string|null;loaded:boolean;lamp:Lamp};
+ llm:LlmState&{model:string|null;loaded:boolean;lamp:Lamp;engines:LoadedEngine[]};
  strata:LlmState|null;
  inkling:LlmState|null;
  agents:{claude:{lamp:Lamp;open:number;working:number};codex:{lamp:Lamp;working:number;partial:boolean};hermes:{lamp:Lamp;whatsapp:string|null};orca:{lamp:Lamp;terminals:number;active:number;pi:number;piActive:number}};
@@ -99,6 +100,14 @@ export function parseOrcaTerminals(body:any,now=Date.now()):OrcaState{
 const level=(v:number|null,c:number,w:number):Level=>v===null?"ok":v>=w?"warning":v>=c?"caution":"ok";
 const pressureName=(p:number|undefined)=>p===1?"NORMAL":p===2?"WARN":p===4?"CRITICAL":null;
 
+/** Model name while Strata holds its model in memory (idle, reading or generating); null while unloaded or unknown. */
+export function strataLoadedModel(body:any):string|null{
+ const state=body?.live?.state;
+ if(state!=="idle"&&state!=="reading"&&state!=="generating")return null;
+ const name=body?.engine?.model;
+ return typeof name==="string"&&name?name:"strata";
+}
+
 export function parseStrataMetrics(body:any):LlmState|null{
  const live=body?.live;
  const rate=(value:unknown)=>typeof value==="number"&&Number.isFinite(value)&&value>=0?value:null;
@@ -116,7 +125,23 @@ export function parseStrataMetrics(body:any):LlmState|null{
   progress:phase==="reading"&&read!==null&&total!==null&&total>0?Math.min(1,read/total):null};
 }
 
-export interface CockpitInputs{sensors:SensorFrame|null;llm:LlmState|null;strata?:LlmState|null;inkling?:LlmState|null;orca:OrcaState|null;status:any|null;tokens?:TokenTotals|null;now?:number}
+export interface SlotSample{task:number;read:number;written:number;at:number}
+export const INKLING_PREFILL_WINDOW_MS=15000,INKLING_PREFILL_MIN_MS=5000;
+/**
+ * Rates from llama-server slot counters. Decode (n_decoded) moves per token, so the last poll is enough. The prompt counter
+ * (n_prompt_tokens_processed) moves in blocks of 2048 tokens, one block every 5-15 s under load, so a per-second delta is
+ * almost always 0: prefill is averaged over a 15 s window and stays unknown (null) until 5 s of the same task are seen.
+ */
+export function inklingFlow(previous:SlotSample[],cur:SlotSample):{samples:SlotSample[];tps:number|null;prefillTps:number|null}{
+ const samples=[...previous.filter(s=>s.task===cur.task&&cur.at-s.at<=INKLING_PREFILL_WINDOW_MS&&s.at<cur.at),cur];
+ const last=samples.length>1?samples[samples.length-2]:null;
+ const tps=cur.written>0&&last&&cur.written>=last.written&&cur.at>last.at?(cur.written-last.written)/((cur.at-last.at)/1000):null;
+ const base=samples[0];const span=cur.at-base.at;
+ const prefillTps=cur.written===0&&span>=INKLING_PREFILL_MIN_MS&&cur.read>=base.read?(cur.read-base.read)/(span/1000):null;
+ return {samples,tps,prefillTps};
+}
+
+export interface CockpitInputs{sensors:SensorFrame|null;llm:LlmState|null;strata?:LlmState|null;inkling?:LlmState|null;strataModel?:string|null;inklingModel?:string|null;orca:OrcaState|null;status:any|null;tokens?:TokenTotals|null;now?:number}
 export function cockpitFrame(i:CockpitInputs):CockpitFrame{
  const now=i.now??Date.now();const s=i.status?.snapshot;const sensors=i.sensors&&now-i.sensors.t<5000?i.sensors:null;
  const sessions=(x:any)=>Array.isArray(x?.value?.sessions)?x.value.sessions:[];
@@ -127,6 +152,12 @@ export function cockpitFrame(i:CockpitInputs):CockpitFrame{
  const hermesState=s?.hermes?.value?.state;
  const models:any[]=Array.isArray(s?.ollama?.value?.models)?s.ollama.value.models:[];
  const llm=i.llm??{phase:"unknown" as LlmPhase,tps:null,lastTps:null,prefillTps:null,progress:null};
+ // "Loaded" means any local engine holds a model: Ollama (api/ps), Strata (metrics state not unloaded), Inkling (slots answer).
+ const engines:LoadedEngine[]=[
+  ...(models.length?[{kind:"ollama" as const,model:String(models[0]?.name??"ollama")}]:[]),
+  ...(i.strataModel?[{kind:"strata" as const,model:i.strataModel}]:[]),
+  ...(i.inkling?[{kind:"inkling" as const,model:i.inklingModel||"inkling"}]:[])];
+ const engineActive=llm.phase==="reading"||llm.phase==="writing"||[i.strata,i.inkling].some(x=>x?.phase==="reading"||x?.phase==="writing");
  const q=(qq:any,label:string):QuotaWindow=>{const w=Array.isArray(qq?.windows)?qq.windows.find((x:any)=>x?.label===label):null;return {remaining:typeof w?.remaining==="number"?w.remaining:null,reset:typeof w?.reset==="number"?w.reset:null};};
  const thermal=sensors?.thermal??"unknown";const tMax=sensors?.temp?.max??null;
  const thermalLevel:Level=thermal==="critical"?"warning":thermal==="serious"?"caution":"ok";const sensorLevel=level(tMax,LIMITS.temp.caution,LIMITS.temp.warning);
@@ -138,7 +169,7 @@ export function cockpitFrame(i:CockpitInputs):CockpitFrame{
   live:{cpu:sensors?.cpu??null,cores:sensors?.cores??[],gpu:sensors?.gpu??null,at:sensors?.t??null},
   temp:{max:tMax,avg:sensors?.temp?.avg??null,hottest:sensors?.temp?.hottest??null,thermal,level:tempLevel},
   memory:{swapBytes:swap,pressure,level:memLevel},
-  llm:{...llm,model:models[0]?.name??null,loaded:models.length>0,lamp:!s?"unknown":llm.phase==="reading"||llm.phase==="writing"?"active":models.length?"idle":"off"},
+  llm:{...llm,model:engines[0]?.model??null,loaded:engines.length>0,engines,lamp:!s&&!engines.length?"unknown":engineActive?"active":engines.length?"idle":"off"},
   strata:i.strata??null,
   inkling:i.inkling??null,
   agents:{
@@ -173,7 +204,8 @@ export class CockpitHub{
  private sensors:SensorFrame|null=null;private llm:LlmState|null=null;private orca:OrcaState|null=null;private status:any=null;private tokens:TokenTotals|null=null;
  private strata:LlmState|null=null;
  private inkling:LlmState|null=null;
- private inklingSample:{task:number;read:number;written:number;at:number}|null=null;
+ private inklingSamples:SlotSample[]=[];
+ private inklingModel:string|null=null;private inklingModelAt=0;private strataModel:string|null=null;
  private child:ChildProcess|null=null;private timers:NodeJS.Timeout[]=[];private stopped=false;private restartDelay=1000;
  private listeners=new Set<(f:CockpitFrame)=>void>();
  constructor(private o:HubOptions){}
@@ -189,7 +221,7 @@ export class CockpitHub{
   return this;
  }
  stop():void{this.stopped=true;for(const t of this.timers)clearInterval(t);this.timers=[];this.child?.kill("SIGTERM");this.child=null;this.listeners.clear();}
- frame():CockpitFrame{return cockpitFrame({sensors:this.sensors,llm:this.llm,strata:this.strata,inkling:this.inkling,orca:this.orca,status:this.status,tokens:this.tokens});}
+ frame():CockpitFrame{return cockpitFrame({sensors:this.sensors,llm:this.llm,strata:this.strata,inkling:this.inkling,strataModel:this.strataModel,inklingModel:this.inklingModel,orca:this.orca,status:this.status,tokens:this.tokens});}
  subscribe(fn:(f:CockpitFrame)=>void):()=>void{this.listeners.add(fn);return ()=>{this.listeners.delete(fn);};}
  get subscribers():number{return this.listeners.size;}
  get recorder():FlightRecorder|null{return this.o.recorder??null;}
@@ -213,21 +245,20 @@ export class CockpitHub{
   try{
    const slots=await fetchJson("http://127.0.0.1:11435/slots",900);
    if(!Array.isArray(slots)||!slots.length)throw new Error("Invalid Inkling slots");
+   if(!this.inklingModel||Date.now()-this.inklingModelAt>30000){
+    try{const m:any=await fetchJson("http://127.0.0.1:11435/v1/models",900);const name=m?.models?.[0]?.name??m?.data?.[0]?.id;this.inklingModel=typeof name==="string"&&name?name:this.inklingModel;this.inklingModelAt=Date.now();}catch{}
+   }
    const slot=slots.find((item:any)=>item?.is_processing===true);
-   if(!slot){this.inkling={phase:"idle",tps:null,lastTps:null,prefillTps:null,progress:null};this.inklingSample=null;return;}
+   if(!slot){this.inkling={phase:"idle",tps:null,lastTps:null,prefillTps:null,progress:null};this.inklingSamples=[];return;}
    const written=Number(slot.next_token?.[0]?.n_decoded),read=Number(slot.n_prompt_tokens_processed),task=Number(slot.id_task),now=Date.now();
    if(![written,read,task].every(Number.isFinite))throw new Error("Invalid Inkling counters");
-   const previous=this.inklingSample, elapsed=previous&&previous.task===task?(now-previous.at)/1000:0;
-   const speed=(value:number,old:number)=>elapsed>0&&value>=old?(value-old)/elapsed:null;
-   const writing=written>0;
-   this.inkling={phase:writing?"writing":"reading",tps:writing&&previous?speed(written,previous.written):null,lastTps:null,
-    prefillTps:!writing&&previous?speed(read,previous.read):null,progress:null};
-   this.inklingSample={task,read,written,at:now};
-  }catch{this.inkling=null;this.inklingSample=null;}
+   const flow=inklingFlow(this.inklingSamples,{task,read,written,at:now});this.inklingSamples=flow.samples;
+   this.inkling={phase:written>0?"writing":"reading",tps:flow.tps,lastTps:null,prefillTps:flow.prefillTps,progress:null};
+  }catch{this.inkling=null;this.inklingSamples=[];this.inklingModel=null;}
  }
  private async pollStrata(url:string):Promise<void>{
-  try{this.strata=parseStrataMetrics(await fetchJson(url,900,512*1024,{Accept:"application/json"}));}
-  catch{this.strata=null;}
+  try{const body=await fetchJson(url,900,512*1024,{Accept:"application/json"});this.strata=parseStrataMetrics(body);this.strataModel=strataLoadedModel(body);}
+  catch{this.strata=null;this.strataModel=null;}
  }
  private async pollLedger():Promise<void>{try{this.tokens=parseLedger(await fetchJson(`${this.o.ledgerUrl}/api/tokens`,3000));}catch{this.tokens=null;}}
  private async pollStatus():Promise<void>{try{this.status=await fetchJson(`${this.o.upstream}/api/status`,2500,4*1024*1024);}catch{this.status=null;}}

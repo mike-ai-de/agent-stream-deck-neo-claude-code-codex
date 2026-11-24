@@ -21,6 +21,14 @@ function fakeDom(){
 }
 
 describe("cockpit client script",()=>{
+ it("keeps the two instrument columns equal and stacks the three rate lines so busy engines cannot widen the page",()=>{
+  const html=cockpitHtml("n");
+  expect(html).toContain(".row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)");
+  expect(html).toContain('<div class="sub rates"><b class="mono" id="strataRate">');
+  expect(html).toContain(".sub.rates{flex-direction:column");
+  expect(html).toContain(".deck{max-width:520px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}");
+  expect(html).toMatch(/\.llm \.m\{flex:1;min-width:0;/);
+ });
  it("runs, draws, applies live data and switches all ranges without errors or overwritten functions",async()=>{
   const html=cockpitHtml("n");const script=html.split('<script nonce="n">')[1].split("</script>")[0];
   const {document,handlers}=fakeDom();const raf:((t:number)=>void)[]=[];const fetched:string[]=[];const errors:unknown[]=[];
@@ -72,6 +80,33 @@ describe("cockpit client script",()=>{
   expect(dial).toMatchObject({primary:"strata",direction:"OUT",text:"—",measured:false});
   sandbox.apply({...frame,llm:idleOllama,strata:parseStrataMetrics({live:{state:"idle"}})});run(8);
   expect(dial).toMatchObject({direction:"",text:"IDLE"});
+  sandbox.apply(frame);run(8);
+  // LLM row: Inkling or Strata loaded counts as a loaded model even when Ollama holds none.
+  const noOllama={...frame,llm:{...frame.llm,phase:"idle" as const,model:null,loaded:false,engines:[]}};
+  sandbox.apply(noOllama);expect(document.getElementById("llmM").textContent).toBe("NO MODEL LOADED");
+  const idleLlm={phase:"idle" as const,tps:null,lastTps:null,prefillTps:null,progress:null};
+  const loadedInkling={...noOllama,inkling:idleLlm,llm:{...noOllama.llm,model:"inkling-2-mini",loaded:true,engines:[{kind:"inkling" as const,model:"inkling-2-mini"}]}};
+  sandbox.apply(loadedInkling);expect(document.getElementById("llmM").textContent).toBe("LOADED · inkling-2-mini");
+  expect(document.getElementById("llm").className).toBe("llm loaded");
+  sandbox.apply({...loadedInkling,llm:{...loadedInkling.llm,engines:[{kind:"ollama" as const,model:"osca-qwen3.8:27b"},...loadedInkling.llm.engines]}});
+  expect(document.getElementById("llmM").textContent).toBe("LOADED · osca-qwen3.8:27b · inkling-2-mini");
+  sandbox.apply({...loadedInkling,inkling:{...idleLlm,phase:"writing" as const,tps:35}});run(4);
+  expect(document.getElementById("llmM").textContent).toBe("INKLING · ACTIVE");
+  expect(document.getElementById("llmP").textContent).toBe("WRITING");
+  // Centre readout: follows the working engine; colour = engine; a held engine yields only after 3 s.
+  const quiet={...frame,llm:{...frame.llm,phase:"idle" as const,tps:null,prefillTps:null},strata:null,inkling:null};
+  sandbox.apply(quiet);run(8);expect(dial).toMatchObject({direction:"",text:"IDLE"});
+  sandbox.apply({...quiet,inkling:{phase:"reading" as const,tps:null,lastTps:null,prefillTps:450,progress:null}});run(4);
+  expect(dial).toMatchObject({primary:"inkling",direction:"IN",text:"450",measured:true});
+  sandbox.apply({...quiet,inkling:{phase:"reading" as const,tps:null,lastTps:null,prefillTps:null,progress:null}});run(2);
+  expect(dial).toMatchObject({primary:"inkling",direction:"IN",text:"—",measured:false});
+  const busyBoth={...quiet,inkling:{phase:"writing" as const,tps:35,lastTps:null,prefillTps:null,progress:null},strata:{phase:"writing" as const,tps:90,lastTps:null,prefillTps:null,progress:null}};
+  sandbox.apply(busyBoth);run(4);expect(dial).toMatchObject({primary:"inkling",direction:"OUT",text:"35.0"}); // held, 1.2 s
+  run(12);expect(dial).toMatchObject({primary:"strata",direction:"OUT",text:"90.0"}); // after 3 s Strata takes over
+  sandbox.apply({...busyBoth,strata:null});run(14);expect(dial).toMatchObject({primary:"inkling",direction:"OUT",text:"35.0"});
+  sandbox.apply({...quiet,llm:{...quiet.llm,phase:"reading" as const,prefillTps:300}});run(14);
+  expect(dial).toMatchObject({primary:"ollama",direction:"IN",text:"300"});
+  sandbox.apply(quiet);run(2);expect(dial).toMatchObject({direction:"",text:"IDLE"});
   sandbox.apply(frame);run(8);
   for(const r of ["1h","24h","7d","30d","live"]){try{handlers["rng-"+r]();}catch(e){errors.push(e);}await new Promise(res=>setImmediate(res));run(3);}
   for(const t of ["h1","h24","month","year","total"]){try{handlers["trng-"+t]();}catch(e){errors.push(e);}}

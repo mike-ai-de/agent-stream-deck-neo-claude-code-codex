@@ -1,6 +1,6 @@
 import { describe,it,expect } from "vitest";
 import http from "node:http";
-import { parseSensorLine,parseLlamaLog,parseOrcaTerminals,parseLedger,cockpitFrame,CockpitHub,type SensorFrame } from "../src/osca/cockpit.js";
+import { parseSensorLine,parseLlamaLog,parseOrcaTerminals,parseLedger,cockpitFrame,strataLoadedModel,inklingFlow,type SlotSample,CockpitHub,type SensorFrame } from "../src/osca/cockpit.js";
 import { createMobileServer } from "../src/osca/mobile.js";
 import { FlightRecorder } from "../src/osca/recorder.js";
 import { OscaDashboard } from "../src/osca/dashboard.js";
@@ -17,6 +17,59 @@ const status=()=>{const s:any=new OscaDashboard(defaults).snapshot();
  s.claudeQuota={windows:[{label:"5h",remaining:94,reset:now+3600000},{label:"7d",remaining:8,reset:now+86400000}],measuredAt:now,error:null,source:"t"};
  s.codexQuota={windows:[{label:"7d",remaining:64,reset:now+86400000}],measuredAt:now,error:null,source:"t"};
  return {snapshot:s};};
+
+describe("Inkling slot rates",()=>{
+ const run=(points:[number,number,number][],task=7)=>{let samples:SlotSample[]=[];let out={tps:null as number|null,prefillTps:null as number|null};
+  for(const [at,read,written] of points){const f=inklingFlow(samples,{task,read,written,at:at*1000});samples=f.samples;out={tps:f.tps,prefillTps:f.prefillTps};}return out;};
+ it("averages the block-wise prompt counter over a window instead of reading 0 between blocks",()=>{
+  // 2048-token blocks arrive every 10 s: per-second deltas would be 0 almost every poll
+  const pts:[number,number,number][]=[];for(let t=0;t<=30;t++)pts.push([t,2048*Math.floor(t/10),0]);
+  expect(run(pts.slice(0,3)).prefillTps).toBeNull(); // not enough history yet: unknown, not a misleading 0
+  expect(run(pts.slice(0,6)).prefillTps).toBeCloseTo(0,5); // first 5 s: no block yet
+  const full=run(pts);expect(full.prefillTps).toBeGreaterThan(130);expect(full.prefillTps).toBeLessThan(300); // true mean 205/s; a 15 s window sees one or two blocks
+  expect(run(pts.slice(0,24)).prefillTps).toBeGreaterThan(100);
+ });
+ it("keeps decode speed per poll, and a new task or a stalled counter resets cleanly",()=>{
+  expect(run([[0,100,0],[1,100,5],[2,100,40]]).tps).toBe(35);
+  expect(run([[0,100,0],[1,100,5]]).prefillTps).toBeNull(); // writing: no prefill rate
+  const first=inklingFlow([],{task:1,read:2048,written:0,at:0});
+  const next=inklingFlow(first.samples,{task:2,read:10,written:0,at:6000});
+  expect(next.samples).toHaveLength(1);expect(next.prefillTps).toBeNull();
+  const old=inklingFlow([{task:3,read:0,written:0,at:0}],{task:3,read:4096,written:0,at:60000});
+  expect(old.samples).toHaveLength(1); // samples older than the window are dropped
+  expect(run([[0,4096,0],[6,4096,0]]).prefillTps).toBe(0); // genuinely stalled for 6 s
+ });
+});
+
+describe("loaded models in the LLM row",()=>{
+ const noOllama=()=>{const s=status();s.snapshot.ollama=reading({activity:"unknown",models:[]},"t");return s;};
+ const idle={phase:"idle" as const,tps:null,lastTps:null,prefillTps:null,progress:null};
+ it("counts Inkling as loaded when Ollama holds no model",()=>{
+  const f=cockpitFrame({sensors:sensors(),llm:idle,orca:null,status:noOllama(),inkling:idle,inklingModel:"inkling-2-mini",now});
+  expect(f.llm).toMatchObject({loaded:true,model:"inkling-2-mini",lamp:"idle",engines:[{kind:"inkling",model:"inkling-2-mini"}]});
+ });
+ it("falls back to a generic label while the model name is not yet known, and is empty without any engine",()=>{
+  expect(cockpitFrame({sensors:sensors(),llm:idle,orca:null,status:noOllama(),inkling:idle,now}).llm).toMatchObject({loaded:true,model:"inkling"});
+  expect(cockpitFrame({sensors:sensors(),llm:idle,orca:null,status:noOllama(),inkling:null,now}).llm).toMatchObject({loaded:false,model:null,lamp:"off",engines:[]});
+ });
+ it("lists Ollama first, then Strata, then Inkling, and lights the lamp for any generating engine",()=>{
+  const f=cockpitFrame({sensors:sensors(),llm:idle,orca:null,status:status(),strata:idle,strataModel:"qwen3.8-flash-next-iq3_s",
+   inkling:{...idle,phase:"writing",tps:35},inklingModel:"inkling-2-mini",now});
+  expect(f.llm.engines.map(e=>e.kind)).toEqual(["ollama","strata","inkling"]);
+  expect(f.llm).toMatchObject({loaded:true,model:"osca-qwen3.8:27b",lamp:"active"});
+ });
+ it("reads Strata as loaded only while its metrics state is not unloaded",()=>{
+  expect(strataLoadedModel({live:{state:"unloaded"},engine:{model:"m"}})).toBeNull();
+  expect(strataLoadedModel({live:{state:"idle"},engine:{model:"qwen3.8-flash-next-iq3_s"}})).toBe("qwen3.8-flash-next-iq3_s");
+  expect(strataLoadedModel({live:{state:"generating"}})).toBe("strata");
+  expect(strataLoadedModel({live:{state:"weird"}})).toBeNull();
+  expect(strataLoadedModel(null)).toBeNull();
+ });
+ it("keeps the lamp unknown without Neo status and without any engine",()=>{
+  expect(cockpitFrame({sensors:sensors(),llm:null,orca:null,status:null,now}).llm.lamp).toBe("unknown");
+  expect(cockpitFrame({sensors:sensors(),llm:null,orca:null,status:null,inkling:idle,inklingModel:"inkling-2-mini",now}).llm.lamp).toBe("idle");
+ });
+});
 
 describe("cockpit sensors",()=>{
  it("parses sampler lines and drops invalid values",()=>{

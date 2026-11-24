@@ -15,8 +15,8 @@ html,body{margin:0;background:var(--bg);color:var(--white);font-family:-apple-sy
 body{padding:calc(env(safe-area-inset-top) + 6px) max(10px,env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 8px) max(10px,env(safe-area-inset-left));min-height:100vh}
 body::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px);mix-blend-mode:screen}
 .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
-.deck{max-width:520px;margin:0 auto;display:grid;gap:8px}
-@media (orientation:landscape) and (min-width:700px){.deck{max-width:1100px;grid-template-columns:1fr 1fr}.span{grid-column:1/-1}}
+.deck{max-width:520px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+@media (orientation:landscape) and (min-width:700px){.deck{max-width:1100px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.span{grid-column:1/-1}}
 html.wall,html.wall body{height:100%;overflow:hidden}html.wall body{display:flex;align-items:center;justify-content:center;padding:0}html.wall body::after{background-size:100% 3px}html.wall .deck{width:1100px;max-width:none;margin:0}
 header{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 0}
 .brand .bt{font-weight:800;letter-spacing:.22em;font-size:15px}.brand b{color:var(--cyan)}.brand .bs{font-size:8.5px;letter-spacing:.32em;color:#8a96a3;margin-top:3px;font-weight:600}
@@ -40,7 +40,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:2px
 @keyframes breathe{0%,100%{box-shadow:0 0 6px rgba(43,234,108,.25),inset 0 0 10px rgba(43,234,108,.15)}50%{box-shadow:0 0 16px rgba(43,234,108,.6),inset 0 0 18px rgba(43,234,108,.3)}}
 .llm{display:flex;align-items:center;gap:10px;margin-top:6px;padding:7px 9px;border-radius:6px;background:#0b0f14;border:1px solid #1c2530;transition:all .4s}
 .llm .n{font-size:11px;font-weight:800;letter-spacing:.12em;color:#7c8896}
-.llm .m{flex:1;font-size:12px;color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.llm .m{flex:1;min-width:0;font-size:12px;color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .llm .p{font-size:10px;font-weight:800;letter-spacing:.14em;padding:3px 7px;border-radius:4px;border:1px solid #2a3542;color:#7c8896}
 .llm.loaded{border-color:rgba(43,234,108,.5)}.llm.loaded .n{color:var(--green)}
 .llm .p.writing{color:#001b08;background:var(--green);border-color:var(--green);box-shadow:0 0 10px var(--green)}
@@ -48,9 +48,10 @@ header{display:flex;align-items:center;justify-content:space-between;padding:2px
 .eng{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding-top:14px}
 canvas{display:block;width:100%}
 .g{aspect-ratio:1/0.82}.vu{height:74px;margin-top:8px}.spark{height:40px;margin-top:2px}.inst{position:relative}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .inst{padding-top:16px}
 .sub[hidden]{display:none}
+.sub.rates{flex-direction:column;align-items:flex-start;gap:1px}
 .sub{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);letter-spacing:.1em;margin-top:2px}
 .sub b{color:var(--white);font-weight:600}
 .fuel{display:grid;gap:7px;padding-top:16px}
@@ -100,7 +101,7 @@ nav .on{color:var(--cyan);border-color:rgba(51,224,255,.5);box-shadow:inset 0 0 
   <div class="eng"><div><canvas class="g" id="gCpu"></canvas><canvas class="spark" id="sCpu"></canvas></div><div><canvas class="g" id="gGpu"></canvas><canvas class="spark" id="sGpu"></canvas></div></div>
   <canvas class="vu" id="vu"></canvas><div class="sub"><span>CPU CORES</span><span><b class="mono" id="coreN">—</b></span></div></section>
  <section class="panel"><div class="row2">
-  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><div class="sub"><b class="mono" id="strataRate">STRATA —</b><span class="mono" id="ollamaRate">OLLAMA —</span><span class="mono" id="inklingRate">INKLING —</span></div><canvas class="spark" id="sTps"></canvas><div class="sub" id="lastRates" hidden><span id="tpsSub" hidden></span><b class="mono" id="pre" hidden></b></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
+  <div class="inst"><div class="ttl">LLM · IN / OUT</div><canvas class="g" id="gTps"></canvas><div class="sub rates"><b class="mono" id="strataRate">STRATA —</b><span class="mono" id="ollamaRate">OLLAMA —</span><span class="mono" id="inklingRate">INKLING —</span></div><canvas class="spark" id="sTps"></canvas><div class="sub" id="lastRates" hidden><span id="tpsSub" hidden></span><b class="mono" id="pre" hidden></b></div><div class="sub peak"><span>PEAK OUT <b class="mono" id="pkOut">—</b></span><span>PEAK IN <b class="mono" id="pkIn">—</b></span></div><div class="sub"><span id="pkR">PEAK T/S · LAST MINUTE</span></div></div>
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
@@ -156,11 +157,23 @@ function throughput(llm){
  var input=llm.phase==="reading",rate=input?llm.prefillTps:llm.tps;
  return {direction:input?"IN":"OUT",text:rate==null?"—":input?String(Math.round(rate)):rate.toFixed(1),measured:rate!=null};
 }
+// The big centre readout follows the engine that is working right now: Strata, then Inkling, then Ollama. A held engine
+// keeps the display for 3 s before a different one takes over, so two busy engines cannot make it flicker.
+var center={key:"",since:0};
+function pickCenter(f,now){
+ var s=f?{strata:f.strata,inkling:f.inkling,ollama:f.llm}:{},order=["strata","inkling","ollama"],want="";
+ for(var i=0;i<order.length;i++){if(isGenerating(s[order[i]])){want=order[i];break;}}
+ if(want!==center.key){
+  if(want&&center.key&&isGenerating(s[center.key])&&now-center.since<3000)want=center.key;
+  else center={key:want,since:now};
+ }
+ return {key:want,state:want?s[want]:null};
+}
 function needlePosition(llm,scale){
  if(!isGenerating(llm))return 0;
  return llm.phase==="reading"?-Math.min(1,(llm.prefillTps||0)/scale.input):Math.min(1,(llm.tps||0)/scale.output);
 }
-// Strata on the outer scale, Ollama on the inner scale. Input left, output right.
+// Strata on the outer scale, Ollama and Inkling on the inner scale. Input left, output right.
 function splitGauge(cv,o){
  var g=fit(cv),x=g.x,w=g.w,h=g.h;x.clearRect(0,0,w,h);
  var cx=w/2,cy=h*0.6,R=Math.min(w*0.41,h*0.46),a0=Math.PI*0.75,a1=Math.PI*2.25,mid=(a0+a1)/2,half=(a1-a0)/2;
@@ -168,7 +181,7 @@ function splitGauge(cv,o){
  x.beginPath();x.arc(cx,cy,R,a0,a1);x.strokeStyle="#1a232d";x.lineWidth=R*0.13;x.stroke();
  x.beginPath();x.arc(cx,cy,R,a0,mid);x.strokeStyle="rgba(255,79,216,.35)";x.lineWidth=R*0.05;x.stroke();
  x.beginPath();x.arc(cx,cy,R,mid,a1);x.strokeStyle="rgba(51,224,255,.35)";x.lineWidth=R*0.05;x.stroke();
- var p=o.strata,col=o.direction?(o.primary==="strata"?C.amber:C.white):C.dim,na=ang(p);
+ var p=o.strata,col=o.direction?(o.primary==="strata"?C.amber:o.primary==="inkling"?C.magenta:C.white):C.dim,na=ang(p);
  var grad=x.createLinearGradient(cx-R,cy,cx+R,cy);grad.addColorStop(0,"rgba(255,79,216,.14)");grad.addColorStop(0.5,"rgba(233,238,243,.04)");grad.addColorStop(1,"rgba(51,224,255,.14)");
  x.beginPath();x.moveTo(cx,cy);if(p<0)x.arc(cx,cy,R*0.93,na,mid);else x.arc(cx,cy,R*0.93,mid,na);x.closePath();x.fillStyle=grad;x.fill();
  x.save();x.shadowColor=col;x.shadowBlur=10;x.beginPath();if(p<0)x.arc(cx,cy,R,na,mid);else x.arc(cx,cy,R,mid,na);x.strokeStyle=col;x.lineWidth=R*0.045;x.stroke();x.restore();
@@ -290,16 +303,17 @@ function apply(f){
  setLamp("codex",a.codex.lamp,a.codex.working?a.codex.working+" WORKING":a.codex.partial?"PARTIAL":"IDLE");
  setLamp("hermes",a.hermes.lamp,a.hermes.lamp==="active"?"WORKING":a.hermes.lamp==="off"?"STOPPED":a.hermes.whatsapp==="connected"?"WA ✓":"IDLE");
  setLamp("orca",a.orca.lamp,a.orca.lamp==="off"?"CLOSED":"PI "+a.orca.piActive+"/"+a.orca.pi+" · "+a.orca.active+"/"+a.orca.terminals);
- var l=f.llm,st=f.strata,stActive=isGenerating(st),shown=stActive?st:l;
- $("llm").className="llm"+(stActive||l.loaded?" loaded":"");
- $("llmM").textContent=stActive?"STRATA · ACTIVE":l.loaded?"LOADED · "+l.model:"NO MODEL LOADED";
+ var l=f.llm,st=f.strata,ink=f.inkling,stActive=isGenerating(st),inkActive=!stActive&&!isGenerating(l)&&isGenerating(ink),shown=stActive?st:inkActive?ink:l;
+ var names=(l.engines||[]).map(function(e){return e.model;});
+ $("llm").className="llm"+(stActive||inkActive||l.loaded?" loaded":"");
+ $("llmM").textContent=stActive?"STRATA · ACTIVE":inkActive?"INKLING · ACTIVE":l.loaded?"LOADED · "+(names.length?names.join(" · "):l.model):"NO MODEL LOADED";
  var p=$("llmP");p.className="p "+shown.phase;p.textContent=shown.phase==="writing"?"WRITING":shown.phase==="reading"?"READING "+(shown.progress!=null?Math.round(shown.progress*100)+"%":""):shown.phase==="idle"?"IDLE":"—";
  totalizer();
  var stRate=$("strataRate"),olRate=$("ollamaRate"),stFlow=throughput(st),olFlow=throughput(l);
  stRate.style.color=C.amber;olRate.style.color=C.white;
  stRate.textContent="STRATA "+(!st?"OFFLINE":stFlow.direction?stFlow.direction+" "+stFlow.text:"IDLE");
  olRate.textContent="OLLAMA "+(olFlow.direction?olFlow.direction+" "+olFlow.text:l.phase==="unknown"?"—":"IDLE");
- var ink=f.inkling,inkFlow=throughput(ink),inkRate=$("inklingRate");inkRate.style.color=C.magenta;
+ var inkFlow=throughput(ink),inkRate=$("inklingRate");inkRate.style.color=C.magenta;
  inkRate.textContent="INKLING "+(!ink?"OFFLINE":inkFlow.direction?inkFlow.direction+" "+inkFlow.text:"IDLE");
  cores=f.live.cores||[];$("coreN").textContent=cores.length?cores.length+" × "+(f.live.cpu!=null?Math.round(f.live.cpu)+"%":"—"):"—";
  var t=f.temp;$("therm").textContent=(t.thermal||"—").toUpperCase();$("therm").style.color=t.thermal==="nominal"?C.green:t.thermal==="fair"?C.cyan:t.thermal==="serious"?C.amber:t.thermal==="critical"?C.red:C.dim;
@@ -319,14 +333,14 @@ function frame(now){
  anim.cpu=lerp(anim.cpu,sweep>0?100*sv:cpu,k);anim.gpu=lerp(anim.gpu,sweep>0?100*sv:gpu,k);anim.tps=lerp(anim.tps,sweep>0?40*sv:tps,kt);anim.temp=lerp(anim.temp,sweep>0?30+80*sv:temp,kt);var split=needlePosition(f&&f.llm,ollamaScale);
  anim.split=lerp(anim.split,split,kt);
  anim.inklingSplit=lerp(anim.inklingSplit,needlePosition(f&&f.inkling,ollamaScale),kt);
- var st=f&&f.strata,stActive=isGenerating(st),display=throughput(stActive?st:f&&f.llm);
+ var st=f&&f.strata,stActive=isGenerating(st),ctr=pickCenter(f,now),display=throughput(ctr.state);
  var stSplit=needlePosition(st,strataScale);
  anim.strataSplit=lerp(anim.strataSplit,sweep>0&&!stActive?(sv*2-1)*(sweep>0.5?1:sweep*2):stSplit,kt);
 
  if(!$("pfd").hidden){
   gauge($("gCpu"),{min:0,max:100,caution:70,warning:90,value:f&&f.live.cpu!=null||sweep>0?anim.cpu:null,text:f&&f.live.cpu!=null?anim.cpu.toFixed(1):"—",label:"CPU",unit:"%",labels:true});
   gauge($("gGpu"),{min:0,max:100,color:C.green,value:f&&f.live.gpu!=null||sweep>0?anim.gpu:null,text:f&&f.live.gpu!=null?anim.gpu.toFixed(0):"—",label:"GPU",unit:"%",labels:true});
-  splitGauge($("gTps"),{ollama:anim.split,inkling:anim.inklingSplit,inklingAvailable:!!(f&&f.inkling),strata:anim.strataSplit,primary:stActive?"strata":"ollama",
+  splitGauge($("gTps"),{ollama:anim.split,inkling:anim.inklingSplit,inklingAvailable:!!(f&&f.inkling),strata:anim.strataSplit,primary:ctr.key||"ollama",
    label:"IN·OUT",text:display.text,direction:display.direction,measured:display.measured});
   gauge($("gTemp"),{min:30,max:110,caution:85,warning:95,value:f&&f.temp.max!=null||sweep>0?anim.temp:null,text:f&&f.temp.max!=null?anim.temp.toFixed(1):"—",label:"CHIP",unit:"°C",labels:true});
   vu($("vu"),now,dt);spark($("sCpu"),series("cpu"),0,100,C.green,false);spark($("sGpu"),series("gpu"),0,100,C.green,false);spark2($("sTps"),series("tps"),series("tin"));spark($("sTemp"),series("temp"),30,110,C.green,false);
