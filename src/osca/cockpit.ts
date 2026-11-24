@@ -22,6 +22,7 @@ export interface CockpitFrame{
  memory:{swapBytes:number|null;pressure:"NORMAL"|"WARN"|"CRITICAL"|null;level:Level};
  llm:LlmState&{model:string|null;loaded:boolean;lamp:Lamp};
  strata:LlmState|null;
+ inkling:LlmState|null;
  agents:{claude:{lamp:Lamp;open:number;working:number};codex:{lamp:Lamp;working:number;partial:boolean};hermes:{lamp:Lamp;whatsapp:string|null};orca:{lamp:Lamp;terminals:number;active:number;pi:number;piActive:number}};
  quota:{claude:{h5:QuotaWindow;d7:QuotaWindow};codex:{d7:QuotaWindow}};
  tokens:TokenTotals|null;
@@ -115,7 +116,7 @@ export function parseStrataMetrics(body:any):LlmState|null{
   progress:phase==="reading"&&read!==null&&total!==null&&total>0?Math.min(1,read/total):null};
 }
 
-export interface CockpitInputs{sensors:SensorFrame|null;llm:LlmState|null;strata?:LlmState|null;orca:OrcaState|null;status:any|null;tokens?:TokenTotals|null;now?:number}
+export interface CockpitInputs{sensors:SensorFrame|null;llm:LlmState|null;strata?:LlmState|null;inkling?:LlmState|null;orca:OrcaState|null;status:any|null;tokens?:TokenTotals|null;now?:number}
 export function cockpitFrame(i:CockpitInputs):CockpitFrame{
  const now=i.now??Date.now();const s=i.status?.snapshot;const sensors=i.sensors&&now-i.sensors.t<5000?i.sensors:null;
  const sessions=(x:any)=>Array.isArray(x?.value?.sessions)?x.value.sessions:[];
@@ -139,6 +140,7 @@ export function cockpitFrame(i:CockpitInputs):CockpitFrame{
   memory:{swapBytes:swap,pressure,level:memLevel},
   llm:{...llm,model:models[0]?.name??null,loaded:models.length>0,lamp:!s?"unknown":llm.phase==="reading"||llm.phase==="writing"?"active":models.length?"idle":"off"},
   strata:i.strata??null,
+  inkling:i.inkling??null,
   agents:{
    claude:{lamp:lampFor(!!s?.claude,claudeWorking>0),open:claudeS.filter((x:any)=>x?.open).length,working:claudeWorking},
    codex:{lamp:lampFor(!!s?.codex,codexWorking>0),working:codexWorking,partial:s?.codex?.quality!=="ok"},
@@ -170,6 +172,8 @@ export interface HubOptions{sensorsBin:string;upstream:string;orcaBin?:string|nu
 export class CockpitHub{
  private sensors:SensorFrame|null=null;private llm:LlmState|null=null;private orca:OrcaState|null=null;private status:any=null;private tokens:TokenTotals|null=null;
  private strata:LlmState|null=null;
+ private inkling:LlmState|null=null;
+ private inklingSample:{task:number;read:number;written:number;at:number}|null=null;
  private child:ChildProcess|null=null;private timers:NodeJS.Timeout[]=[];private stopped=false;private restartDelay=1000;
  private listeners=new Set<(f:CockpitFrame)=>void>();
  constructor(private o:HubOptions){}
@@ -177,6 +181,7 @@ export class CockpitHub{
   this.spawnSensors();
   const every=(ms:number,fn:()=>Promise<void>)=>{let busy=false;const run=()=>{if(busy)return;busy=true;fn().catch(()=>{}).finally(()=>{busy=false;});};run();this.timers.push(setInterval(run,ms));};
   every(1000,()=>this.pollLlm());
+  every(1000,()=>this.pollInkling());
   const strataMetricsUrl=this.o.strataMetricsUrl;
   if(strataMetricsUrl)every(1000,()=>this.pollStrata(strataMetricsUrl));
   if(this.o.recorder){const rec=this.o.recorder;this.timers.push(setInterval(()=>{try{rec.record(this.frame());}catch{}},1000));}every(3000,()=>this.pollOrca());every(2000,()=>this.pollStatus());if(this.o.ledgerUrl)every(15000,()=>this.pollLedger());
@@ -184,7 +189,7 @@ export class CockpitHub{
   return this;
  }
  stop():void{this.stopped=true;for(const t of this.timers)clearInterval(t);this.timers=[];this.child?.kill("SIGTERM");this.child=null;this.listeners.clear();}
- frame():CockpitFrame{return cockpitFrame({sensors:this.sensors,llm:this.llm,strata:this.strata,orca:this.orca,status:this.status,tokens:this.tokens});}
+ frame():CockpitFrame{return cockpitFrame({sensors:this.sensors,llm:this.llm,strata:this.strata,inkling:this.inkling,orca:this.orca,status:this.status,tokens:this.tokens});}
  subscribe(fn:(f:CockpitFrame)=>void):()=>void{this.listeners.add(fn);return ()=>{this.listeners.delete(fn);};}
  get subscribers():number{return this.listeners.size;}
  get recorder():FlightRecorder|null{return this.o.recorder??null;}
@@ -203,6 +208,22 @@ export class CockpitHub{
  private async pollOrca():Promise<void>{
   if(!this.o.orcaBin){this.orca=null;return;}
   try{this.orca=parseOrcaTerminals(JSON.parse(await command(this.o.orcaBin,["terminal","list","--json"],2500,2*1024*1024)));}catch{this.orca=null;}
+ }
+ private async pollInkling():Promise<void>{
+  try{
+   const slots=await fetchJson("http://127.0.0.1:11435/slots",900);
+   if(!Array.isArray(slots)||!slots.length)throw new Error("Invalid Inkling slots");
+   const slot=slots.find((item:any)=>item?.is_processing===true);
+   if(!slot){this.inkling={phase:"idle",tps:null,lastTps:null,prefillTps:null,progress:null};this.inklingSample=null;return;}
+   const written=Number(slot.next_token?.[0]?.n_decoded),read=Number(slot.n_prompt_tokens_processed),task=Number(slot.id_task),now=Date.now();
+   if(![written,read,task].every(Number.isFinite))throw new Error("Invalid Inkling counters");
+   const previous=this.inklingSample, elapsed=previous&&previous.task===task?(now-previous.at)/1000:0;
+   const speed=(value:number,old:number)=>elapsed>0&&value>=old?(value-old)/elapsed:null;
+   const writing=written>0;
+   this.inkling={phase:writing?"writing":"reading",tps:writing&&previous?speed(written,previous.written):null,lastTps:null,
+    prefillTps:!writing&&previous?speed(read,previous.read):null,progress:null};
+   this.inklingSample={task,read,written,at:now};
+  }catch{this.inkling=null;this.inklingSample=null;}
  }
  private async pollStrata(url:string):Promise<void>{
   try{this.strata=parseStrataMetrics(await fetchJson(url,900,512*1024,{Accept:"application/json"}));}
