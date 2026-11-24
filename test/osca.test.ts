@@ -1,6 +1,6 @@
 import {describe,it,expect,vi,afterEach} from "vitest";import http from "node:http";import sharp from "sharp";
 import {remaining,percent,claudeQuota,codexQuota,quotaStale,emptyQuota,quotaCaption} from "../src/osca/quota.js";
-import {parseOllama,parseMemory,parseGpu,parseBackup,hermesFromStatus,parseInferenceLog,parseGoDuration} from "../src/osca/local.js";
+import {parseOllama,parseEngines,parseMemory,parseGpu,parseBackup,hermesFromStatus,parseInferenceLog,parseGoDuration} from "../src/osca/local.js";
 import {fetchJson,Poll} from "../src/osca/io.js";import {PAGES,PAGE_NAMES,HERMES_HOME,reading,counts,type Snapshot} from "../src/osca/model.js";
 import {OscaDashboard} from "../src/osca/dashboard.js";import {defaults} from "../src/osca/config.js";import {tiles,tile,tileSvg,render,preview,infoSvg} from "../src/osca/view.js";
 import {actionFor,Actions,selectSession} from "../src/osca/actions.js";import {inferStatus,parseCodexSignal} from "../src/osca/sessions.js";
@@ -42,6 +42,23 @@ describe("sessions and attention",()=>{
 });
 describe("three complete pages and actions",()=>{
  it("all 24 positions exactly match the brief",()=>{expect(PAGES).toEqual([["claude","codex","hermes","agents","claudeQuota","codexQuota","ollama","needs"],["cpu","memory","gpu","disks","ollamaMemory","inference","speech","services"],["mail","notion","exchange","backup","hostinger","stop","nextCheck","control"]]);});
+ it("parses Strata and Inkling as loaded only while they hold a model",()=>{
+  expect(parseEngines({loaded:false,model:"q"},{models:[{name:"inkling-2-mini"}]})).toEqual({strata:null,inkling:"inkling-2-mini"});
+  expect(parseEngines({loaded:true,model:"qwen3.8-flash-next-iq3_s"},null)).toEqual({strata:"qwen3.8-flash-next-iq3_s",inkling:null});
+  expect(parseEngines({loaded:true},{data:[{id:"x"}]})).toEqual({strata:"strata",inkling:"x"});
+  expect(parseEngines(null,{models:[]})).toEqual({strata:null,inkling:null});
+ });
+ it("LLM key counts Inkling and Strata as loaded models, not only Ollama",()=>{
+  const s=snapshot();s.ollama=reading({activity:"unknown",models:[]},"t");
+  s.engines=reading({strata:null,inkling:"inkling-2-mini"},"t");
+  expect(tile(s,"ollama")).toMatchObject({title:"LLM",lines:["INKLING","1 LOADED","BUSY —"],quality:"ok"});
+  s.engines=reading({strata:"q",inkling:"inkling-2-mini"},"t");expect(tile(s,"ollama").lines).toEqual(["STRATA","2 LOADED","BUSY —"]);
+  s.ollama=reading({activity:"unknown",models:[{name:"osca-qwen3.8:27b",size:1,vram:1}]},"t");expect(tile(s,"ollama").lines).toEqual(["osca-qwen3.8…","3 LOADED","BUSY —"]);
+  s.ollama=reading({activity:"unknown",models:[]},"t");s.engines=reading({strata:null,inkling:null},"t");expect(tile(s,"ollama").lines).toEqual(["NO MODEL","BUSY —"]);
+  const down=snapshot();expect(tile(down,"ollama").lines).toEqual(["UNAVAILABLE","BUSY —"]);
+  expect(tile(down,"services").lines[0]).toBe("0/3 LIVE");
+  down.engines=reading({strata:null,inkling:"inkling-2-mini"},"t");expect(tile(down,"services").lines[0]).toBe("1/3 LIVE");
+ });
  it.each([0,1,2])("page %i renders eight RGBA keys and a Neo-sized infobar",async page=>{const s=snapshot();const b=await render(s,page);expect(b).toHaveLength(9);expect(b.slice(0,8).every(x=>x.length===96*96*4)).toBe(true);expect(b[8].length).toBe(248*58*4);expect(tiles(s,page).map(t=>t.module)).toEqual(PAGES[page]);const meta=await sharp(await preview(s,page)).metadata();expect([meta.width,meta.height]).toEqual([464,350]);});
  it("both touchpoints navigate on every page; key actions depend on visible page",()=>{for(let p=0;p<3;p++){expect(actionFor(p,8)).toEqual({type:"navigate",delta:-1});expect(actionFor(p,9)).toEqual({type:"navigate",delta:1});}expect(actionFor(0,0)).toEqual({type:"session",provider:"claude"});expect(actionFor(1,0)).toMatchObject({type:"open",target:"http://127.0.0.1:9463/#cpu"});expect(actionFor(2,5)).toEqual({type:"stop"});expect(actionFor(2,7)).toMatchObject({type:"open",target:"/Volumes/OSCA-DATA/00-Control"});});
  it("one collector failure leaves the others usable",async()=>{const bad=new Poll(1,async()=>{throw Error("offline")},1,()=>-1);const good=new Poll(1,async()=>42,0,()=>-1);bad.start();good.start();await Promise.all([bad.settle(),good.settle()]);expect(bad.value).toBe(-1);expect(good.value).toBe(42);const s=snapshot();s.cpu=reading(42,"test");expect(tile(s,"cpu").lines).toContain("42 %");expect((await render(s,2))).toHaveLength(9);});

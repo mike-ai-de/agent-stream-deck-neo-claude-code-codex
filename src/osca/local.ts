@@ -1,8 +1,19 @@
 import fs from "node:fs/promises";import path from "node:path";import os from "node:os";
 import type {Config} from "./config.js";import {command,fetchJson,jsonFile,textFile,unixJson,tail} from "./io.js";
-import {CONTROL,HERMES_HOME,HERMES_ROOT,reading,unavailable,type Reading,type Hermes,type Ollama,type Memory,type Disks,type Speech,type Backup,type Ops} from "./model.js";
+import {CONTROL,HERMES_HOME,HERMES_ROOT,reading,unavailable,type Reading,type Hermes,type Ollama,type LocalEngines,type Memory,type Disks,type Speech,type Backup,type Ops} from "./model.js";
 export function parseOllama(body:any):Ollama{if(!body||!Array.isArray(body.models))throw new Error("Invalid /api/ps object");return {activity:"unknown",models:body.models.map((m:any)=>{if(typeof m?.name!=="string")throw new Error("Invalid model");return {name:m.name,size:nonnegative(m.size),vram:nonnegative(m.size_vram)};})};}
 export function nonnegative(v:unknown):number|null{return typeof v==="number"&&Number.isFinite(v)&&v>=0?v:null;}
+/** Strata /health: loaded=true while its model is in memory. Inkling /v1/models: answers only while llama-server runs. */
+export function parseEngines(strata:any,inkling:any):LocalEngines{
+ const name=(v:unknown)=>typeof v==="string"&&v?v:null;
+ return {strata:strata?.loaded===true?name(strata.model)||"strata":null,
+  inkling:name(inkling?.models?.[0]?.name)||name(inkling?.data?.[0]?.id)};
+}
+export async function collectEngines():Promise<Reading<LocalEngines>>{
+ const get=async(url:string)=>{try{return await fetchJson(url,900);}catch{return null;}};
+ const [strata,inkling]=await Promise.all([get("http://127.0.0.1:18080/health"),get("http://127.0.0.1:11435/v1/models")]);
+ return reading(parseEngines(strata,inkling),"Strata GET /health; Inkling GET /v1/models; loopback only");
+}
 export async function collectOllama(config:Config):Promise<Reading<Ollama>>{return reading(parseOllama(await fetchJson(config.ollamaUrl+"/api/ps")),"Ollama GET /api/ps; loaded != busy");}
 export function hermesFromStatus(body:any,expectedHome=HERMES_HOME):Hermes{
  if(body?.hermes_home!==expectedHome||body.answering_pid!==body.pid||typeof body.answered_at!=="number"||Math.abs(Date.now()/1000-body.answered_at)>10)throw new Error("Hermes identity/liveness mismatch");

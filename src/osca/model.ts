@@ -9,6 +9,8 @@ export interface Session { provider: Provider; id: string; state: "idle" | "work
 export interface Sessions { sessions: Session[]; waitingComplete: boolean; openComplete: boolean; source: string }
 export interface Hermes { state: "running" | "working" | "stopped" | "unknown"; active: number | null; whatsapp: string | null; pid: number | null; home: string; attentionComplete: boolean }
 export interface Model { name: string; size: number | null; vram: number | null }
+/** Models held in memory by the other local engines; a name means loaded, null means unloaded or not running. */
+export interface LocalEngines { strata: string | null; inkling: string | null }
 export interface Ollama { models: Model[]; activity: "unknown"; version?: string }
 export interface Memory { pressure: "NORMAL" | "WARN" | "CRITICAL" | null; swapBytes: number | null; pageSize: number | null; totalBytes: number; freeBytes: number | null }
 export interface Disks { coreFree: number | null; dataFree: number | null; coreTotal: number | null; dataTotal: number | null }
@@ -17,7 +19,7 @@ export interface Backup { running: boolean | null; lastSuccess: string | null; r
 export interface Ops { mail: Reading<string>; notion: Reading<string>; hostinger: Reading<string>; nextCheck: Reading<string>; backup: Reading<Backup> }
 export interface Snapshot {
   claude: Reading<Sessions>; codex: Reading<Sessions>; hermes: Reading<Hermes>;
-  claudeQuota: Quota; codexQuota: Quota; ollama: Reading<Ollama>;
+  claudeQuota: Quota; codexQuota: Quota; ollama: Reading<Ollama>; engines: Reading<LocalEngines>;
   cpu: Reading<number>; memory: Reading<Memory>; gpu: Reading<number>; disks: Reading<Disks>; speech: Reading<Speech>;
   inference: Reading<{ durationMs: number; tokensPerSecond: number | null }>;
   ops: Ops; at: number;
