@@ -127,6 +127,15 @@ describe("cockpit frame",()=>{
   expect(f.alerts).toEqual([{level:"warning",text:"CLAUDE 7D QUOTA 8% LEFT"}]);
   const raw=JSON.stringify(f);for(const leak of ["secret-session","/secret/home","4711"])expect(raw).not.toContain(leak);
  });
+ it("passes the two provider windows through as remaining, including a missing Codex 5H or a zero balance",()=>{
+  const inputs={sensors:sensors(),llm:null,orca:null,status:status(),now};
+  expect(cockpitFrame(inputs).quota.codex.h5).toEqual({remaining:null,reset:null});
+  inputs.status.snapshot.codexQuota.windows.unshift({label:"5h",remaining:0,reset:now+3600000});
+  const f=cockpitFrame(inputs);
+  expect(f.quota.claude).toEqual({h5:{remaining:94,reset:now+3600000},d7:{remaining:8,reset:now+86400000}});
+  expect(f.quota.codex).toEqual({h5:{remaining:0,reset:now+3600000},d7:{remaining:64,reset:now+86400000}});
+  expect(f.alerts).toContainEqual({level:"warning",text:"CODEX 5H QUOTA 0% LEFT"});
+ });
  it("warns on heat and swap and reports lost sources",()=>{
   const hot=cockpitFrame({sensors:sensors({thermal:"serious",temp:{max:97,avg:90,hottest:99,sensors:1},swap:9*1024**3,pressure:4}),llm:null,orca:null,status:null,now});
   expect(hot.temp.level).toBe("warning");expect(hot.memory).toMatchObject({level:"warning",pressure:"CRITICAL"});
@@ -147,7 +156,7 @@ describe("cockpit routes",()=>{
    const port=(server.address() as {port:number}).port,url=`http://127.0.0.1:${port}`;options.port=port;
    const page=await fetch(url+"/cockpit");expect(page.status).toBe(200);
    expect(page.headers.get("content-security-policy")).toContain("script-src 'nonce-");
-   const html=await page.text();expect(html).toContain("OPERATING SYSTEM · CORE · AGENT");expect(html).not.toMatch(/<body[\s\S]*style="/);
+   const html=await page.text();expect(html).toContain("OPERATING SYSTEM · CORE · AGENT");expect(html).toContain("CODEX 5H");expect(html).toContain("KONTINGENT ÜBRIG");expect(html).not.toMatch(/<body[\s\S]*style="/);
    const neo=await (await fetch(url+"/")).text();expect(neo).toContain('href="/cockpit"');
    const snap=await (await fetch(url+"/api/cockpit")).json();expect(snap.ok).toBe(true);
    const ctrl=new AbortController();const stream=await fetch(url+"/api/cockpit/stream",{signal:ctrl.signal});

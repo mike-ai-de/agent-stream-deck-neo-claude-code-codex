@@ -12,6 +12,17 @@ describe("remaining quota contract",()=>{
  it("Claude uses utilization as used, preserves remaining semantics",()=>{expect(claudeQuota({five_hour:{utilization:0},seven_day:{used_percentage:100}}).windows.map(w=>w.remaining)).toEqual([100,0]);expect(claudeQuota({five_hour:{remaining_percentage:95}}).windows[0].remaining).toBe(95);});
  it("ambiguous old limit.percent is not guessed",()=>{expect(claudeQuota({limits:[{kind:"session",percent:5}]}).windows[0].remaining).toBeNull();});
  it("Codex handles week-only, explicit remaining, bucket selection and no fake 5h",()=>{const q=codexQuota({rateLimits:{primary:{usedPercent:99}},rateLimitsByLimitId:{codex:{primary:{usedPercent:100,windowDurationMins:10080,resetsAt:2e9}},other:{primary:{usedPercent:0,windowDurationMins:300}}}});expect(q.windows[0]).toMatchObject({label:"5h",remaining:null});expect(q.windows[1]).toMatchObject({label:"7d",remaining:0,reset:2e12});expect(codexQuota({rateLimits:{primary:{remainingPercent:95,windowDurationMins:300}}}).windows[0].remaining).toBe(95);});
+ it("renders both provider balances on the Elgato keys",()=>{
+  const s=snapshot(),reset=Math.floor(Date.now()/1000)+3600;
+  s.claudeQuota=claudeQuota({five_hour:{utilization:24,resets_at:reset},seven_day:{utilization:70,resets_at:reset}});
+  s.codexQuota=codexQuota({rateLimits:{primary:{usedPercent:51,windowDurationMins:300,resetsAt:reset},secondary:{usedPercent:22,windowDurationMins:10080,resetsAt:reset}}});
+  for(const [module,h5,d7] of [["claudeQuota",76,30],["codexQuota",49,78]] as const){
+   const key=tileSvg(tile(s,module),s);
+   expect(key).toContain("KONTINGENT ÜBRIG");
+   expect(key).toContain(`5h REST ${h5} %`);
+   expect(key).toContain(`7d REST ${d7} %`);
+  }
+ });
  it("stale timestamp and failed refresh never become fresh full quota",()=>{const q=codexQuota({rateLimits:{primary:{usedPercent:50,windowDurationMins:300}}},100);expect(quotaStale(q,700000)).toBe(true);expect(quotaStale({...q,error:"fetch failed"},101)).toBe(true);expect(emptyQuota("test").windows.every(w=>w.remaining===null)).toBe(true);});
  it("expired reset is stale, missing reset is allowed",()=>{const q=claudeQuota({five_hour:{utilization:20,resets_at:1}},1000);expect(quotaStale(q,1001)).toBe(true);expect(quotaStale(claudeQuota({five_hour:{utilization:0}},1000),1001)).toBe(false);});
  it("bar width follows REST, including empty/full/missing",()=>{const s=snapshot();for(const [used,width] of [[0,80],[50,40],[100,0]]){s.claudeQuota=claudeQuota({five_hour:{utilization:used},seven_day:{utilization:used}});const svg=tileSvg(tile(s,"claudeQuota"),s);expect(svg).toContain(`width="${width}" height="4" rx="2" fill="#63d7e5"`);expect(svg).toContain(`REST ${100-used} %`);}s.claudeQuota=emptyQuota("test");expect(tileSvg(tile(s,"claudeQuota"),s)).not.toContain('width="80" height="4" rx="2" fill="#63d7e5"');expect(quotaCaption(s.claudeQuota.windows[0])).toBe("REST —");});

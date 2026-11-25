@@ -25,7 +25,7 @@ export interface CockpitFrame{
  strata:LlmState|null;
  inkling:LlmState|null;
  agents:{claude:{lamp:Lamp;open:number;working:number};codex:{lamp:Lamp;working:number;partial:boolean};hermes:{lamp:Lamp;whatsapp:string|null};orca:{lamp:Lamp;terminals:number;active:number;pi:number;piActive:number}};
- quota:{claude:{h5:QuotaWindow;d7:QuotaWindow};codex:{d7:QuotaWindow}};
+ quota:{claude:{h5:QuotaWindow;d7:QuotaWindow};codex:{h5:QuotaWindow;d7:QuotaWindow}};
  tokens:TokenTotals|null;
  alerts:Alert[];
  sources:{sensors:boolean;neo:boolean;orca:boolean;llm:boolean;ledger:boolean};
@@ -178,7 +178,7 @@ export function cockpitFrame(i:CockpitInputs):CockpitFrame{
    hermes:{lamp:!s?.hermes||hermesState==="unknown"?"unknown":hermesState==="stopped"?"off":lampFor(true,hermesState==="working"),whatsapp:s?.hermes?.value?.whatsapp??null},
    orca:i.orca?{lamp:i.orca.active>0?"active":"idle",terminals:i.orca.terminals,active:i.orca.active,pi:i.orca.pi,piActive:i.orca.piActive}:{lamp:"off",terminals:0,active:0,pi:0,piActive:0},
   },
-  quota:{claude:{h5:q(s?.claudeQuota,"5h"),d7:q(s?.claudeQuota,"7d")},codex:{d7:q(s?.codexQuota,"7d")}},
+  quota:{claude:{h5:q(s?.claudeQuota,"5h"),d7:q(s?.claudeQuota,"7d")},codex:{h5:q(s?.codexQuota,"5h"),d7:q(s?.codexQuota,"7d")}},
   tokens:i.tokens??null,
   alerts:[],
   sources:{sensors:!!sensors,neo:!!s,orca:!!i.orca,llm:!!i.llm,ledger:!!i.tokens},
@@ -193,7 +193,7 @@ export function alerts(f:CockpitFrame):Alert[]{
  if(f.memory.level!=="ok")a.push({level:f.memory.level,text:`SWAP ${f.memory.swapBytes===null?"—":gib(f.memory.swapBytes)} · MEM ${f.memory.pressure??"—"}`});
  if(f.live.cpu!==null&&f.live.cpu>=LIMITS.load.warning)a.push({level:"caution",text:`CPU LOAD ${Math.round(f.live.cpu)}%`});
  const quota=(name:string,w:QuotaWindow)=>{if(w.remaining===null)return;const l=w.remaining<=LIMITS.quota.warning?"warning":w.remaining<=LIMITS.quota.caution?"caution":"ok";if(l!=="ok")a.push({level:l,text:`${name} QUOTA ${Math.round(w.remaining)}% LEFT`});};
- quota("CLAUDE 5H",f.quota.claude.h5);quota("CLAUDE 7D",f.quota.claude.d7);quota("CODEX 7D",f.quota.codex.d7);
+ quota("CLAUDE 5H",f.quota.claude.h5);quota("CLAUDE 7D",f.quota.claude.d7);quota("CODEX 5H",f.quota.codex.h5);quota("CODEX 7D",f.quota.codex.d7);
  if(!f.sources.sensors)a.push({level:"caution",text:"SENSOR LINK LOST"});
  if(!f.sources.neo)a.push({level:"caution",text:"NEO STATUS UNAVAILABLE"});
  return a.sort((x,y)=>(x.level==="warning"?0:1)-(y.level==="warning"?0:1));

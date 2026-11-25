@@ -11,7 +11,7 @@ function fakeDom(){
  const el=(id:string):any=>{if(elements.has(id))return elements.get(id);let text="";const e:any={id,get textContent():string{return text+this.children.map((c:any)=>typeof c==="string"?c:c.textContent).join("");},set textContent(value:string){text=value;this.children=[];},innerHTML:"",className:"",hidden:false,style:{},width:0,height:0,offsetWidth:300,offsetHeight:200,firstChild:{style:{}},
   attrs:{} as Record<string,string>,children:[] as any[],
   getAttribute(n:string){return this.attrs[n]??null;},setAttribute(n:string,v:string){this.attrs[n]=v;},appendChild(c:any){this.children.push(c);return c;},append(...nodes:any[]){this.children.push(...nodes);},
-  querySelector(){return el(id+"-child");},querySelectorAll(){return [];},getBoundingClientRect(){return {width:300,height:200,left:0,top:0,right:300,bottom:200};},
+  querySelector(selector:string){return el(id+"-"+selector);},querySelectorAll(){return [];},getBoundingClientRect(){return {width:300,height:200,left:0,top:0,right:300,bottom:200};},
   getContext(){return ctx2d;},classList:{toggle(){},add(){},remove(){}},addEventListener(){},set onclick(f:()=>void){handlers[id]=f;}};elements.set(id,e);return e;};
  const rangeButtons=["live","1h","24h","7d","30d"].map(r=>{const b=el("rng-"+r);b.attrs["data-r"]=r;return b;});
  const totalButtons=["h1","h24","month","year","total"].map(t=>{const b=el("trng-"+t);b.attrs["data-t"]=t;return b;});
@@ -60,6 +60,12 @@ describe("cockpit client script",()=>{
    tokens:{init:"2026-10-25",at:Date.now(),ranges:{h1:{requests:1,inNew:1,inTotal:2,out:3},h24:{requests:1,inNew:1,inTotal:2,out:3},month:{requests:1,inNew:1,inTotal:2,out:3},year:{requests:1,inNew:1,inTotal:2,out:3},total:{requests:5496,inNew:41012027,inTotal:250782518,out:7151608}},perDay:{inNew:1,out:1}}});
   let frameTime=Date.now()+1800;
   const run=(n:number)=>{for(let i=0;i<n;i++){const f=raf.shift();if(!f)break;try{f(frameTime+=300);}catch(e){errors.push(e);}}};
+  sandbox.apply({...frame,quota:{claude:{h5:{remaining:76,reset:null},d7:{remaining:30,reset:null}},codex:{h5:{remaining:49,reset:null},d7:{remaining:78,reset:null}}}});
+  for(const [id,value] of [["f-c5","76%"],["f-c7","30%"],["f-x5","49%"],["f-x7","78%"]]){
+   const row=document.getElementById(id);
+   expect(row.querySelector(".v").textContent).toBe(value);
+   expect(row.querySelector("i").style.width).toBe(value);
+  }
   sandbox.apply(frame);run(8);
   expect(document.getElementById("strataRate").textContent).toBe("STRATA OFFLINE");
   expect(dial).toMatchObject({primary:"ollama",direction:"IN",text:"480"});

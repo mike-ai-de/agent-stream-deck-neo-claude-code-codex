@@ -139,9 +139,20 @@ function build(d) {
     l.addSpacer();
     text(l, llm.phase === "writing" && llm.tps != null ? llm.tps.toFixed(1) + " T/S" : llm.phase.toUpperCase(), 11, llm.phase === "writing" ? C.accent : llm.phase === "reading" ? C.cyan : C.dim, "mono");
     w.addSpacer(4);
-    const q = w.addStack(); q.spacing = 10;
-    [["CL 5H", d.quota.claude.h5, C.claude], ["CL 7D", d.quota.claude.d7, C.claude], ["CX 7D", d.quota.codex.d7, C.codex]].forEach(function (x) { const r = x[1].remaining; text(q, x[0] + " " + pct(r), 10, r == null ? C.dim : r <= 10 ? C.red : r <= 20 ? C.amber : x[2], "mono"); });
-    w.addSpacer(4);
+  }
+  const limits = d.quota;
+  [["CL", limits.claude, C.claude], ["CX", limits.codex, C.codex]].forEach(function (provider) {
+    const row = w.addStack(); row.spacing = fam === "small" ? 4 : 7;
+    const size = fam === "small" ? 8 : 10;
+    text(row, provider[0], size, provider[2], "heavy");
+    [["5H", provider[1].h5], ["7D", provider[1].d7]].forEach(function (window) {
+      const r = window[1]?.remaining;
+      text(row, window[0] + " " + pct(r), size, r == null ? C.dim : r <= 10 ? C.red : r <= 20 ? C.amber : C.white, "mono");
+    });
+    text(row, "ÜBRIG", size, C.dim, "heavy");
+  });
+  w.addSpacer(4);
+  if (fam !== "small") {
     if (d.tokens) { const tt = d.tokens.ranges.total; text(w, "TOKENS IN " + compact(tt.inNew) + " · OUT " + compact(tt.out) + " · 24H " + compact(d.tokens.ranges.h24.inNew) + "/" + compact(d.tokens.ranges.h24.out), 10, C.cyan, "mono"); w.addSpacer(4); }
   }
   text(w, (d.alerts.length ? "⚠ " : "") + alertText(d) + (fam === "small" ? "" : " · SWAP " + swapText(d.memory.swapBytes)), fam === "small" ? 9 : 10, levelColor(alertLevel(d)), "heavy");

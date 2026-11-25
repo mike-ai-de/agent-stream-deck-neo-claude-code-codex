@@ -93,7 +93,7 @@ canvas{display:block;width:100%}
 .f .bar u{position:absolute;top:0;bottom:0;width:1px;background:var(--dim)}
 .f.caution .bar i{--fuel:var(--warn)}
 .f.warning .bar i{--fuel:var(--error)}
-#f-c5,#f-c7{--fuel:${agents.claude}}#f-x7{--fuel:${agents.codex}}
+#f-c5,#f-c7{--fuel:${agents.claude}}#f-x5,#f-x7{--fuel:${agents.codex}}
 .f .v{text-align:right;color:var(--white)}.f .r{grid-column:2/4;margin-top:-5px;font-size:9px;color:var(--dim);letter-spacing:.06em}
 .eicas{min-height:52px;padding-top:18px;font-size:12px;font-weight:700;letter-spacing:.08em}
 .eicas div{padding:2px 0}.eicas .caution{color:var(--warn)}.eicas .warning{color:var(--error);animation:alert-text .8s steps(2) infinite}
@@ -141,9 +141,10 @@ ${systemStyles}
   <div class="inst"><div class="ttl">CHIP TEMP</div><canvas class="g" id="gTemp"></canvas><canvas class="spark" id="sTemp"></canvas><div class="sub gap"><span>THERMAL</span><b class="mono" id="therm">—</b></div><div class="sub"><span>AVG / HOT</span><b class="mono" id="tAvg">—</b></div><div class="sub"><span>SWAP</span><b class="mono" id="swap">—</b></div></div>
  </div></section>
  <section class="panel span rec"><div class="ttl">FLIGHT RECORDER</div><div class="rng" id="rng"><button data-r="live" class="on">1M</button><button data-r="1h">1H</button><button data-r="24h">24H</button><button data-r="7d">7D</button><button data-r="30d">30D</button></div></section>
- <section class="panel"><div class="ttl">FUEL · QUOTA REMAINING</div><div class="fuel">
+ <section class="panel"><div class="ttl">FUEL · KONTINGENT ÜBRIG</div><div class="fuel">
   <div class="f" id="f-c5"><span class="k">CLAUDE 5H</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
   <div class="f" id="f-c7"><span class="k">CLAUDE 7D</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
+  <div class="f" id="f-x5"><span class="k">CODEX 5H</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
   <div class="f" id="f-x7"><span class="k">CODEX 7D</span><span class="bar"><i></i><u></u></span><span class="v mono">—</span><span class="r mono">—</span></div>
  </div></section>
  <section class="panel" id="totP"><div class="ttl" id="totT">TOKEN TOTALIZER</div><div class="trng" id="trng"><button data-t="h1">1H</button><button data-t="h24">24H</button><button data-t="month">MONTH</button><button data-t="year">YEAR</button><button data-t="total" class="on">TOTAL</button></div>
@@ -371,7 +372,7 @@ function apply(f){
  var t=f.temp;$("therm").textContent=(t.thermal||"—").toUpperCase();$("therm").style.color=t.thermal==="nominal"?C.green:t.thermal==="fair"?C.cyan:t.thermal==="serious"?C.amber:t.thermal==="critical"?C.red:C.dim;
  $("tAvg").textContent=(t.avg!=null?t.avg.toFixed(0):"—")+" / "+(t.hottest!=null?t.hottest.toFixed(0):"—")+" °C";
  var sw=f.memory.swapBytes;$("swap").textContent=sw==null?"—":sw<1048576?"0 MB":sw<1073741824?Math.round(sw/1048576)+" MB":(sw/1073741824).toFixed(1)+" GB";$("swap").style.color=f.memory.level==="ok"?C.green:f.memory.level==="caution"?C.amber:C.red;
- fuel("f-c5",f.quota.claude.h5);fuel("f-c7",f.quota.claude.d7);fuel("f-x7",f.quota.codex.d7);
+ fuel("f-c5",f.quota.claude.h5);fuel("f-c7",f.quota.claude.d7);fuel("f-x5",f.quota.codex.h5);fuel("f-x7",f.quota.codex.d7);
  chip("cTemp","TEMP",t.level==="ok"?"ok":t.level);chip("cSwap","SWAP",f.memory.level==="ok"?"ok":f.memory.level);
  var cpu=f.live.cpu||0,gpu=f.live.gpu||0;chip("loadChip",cpu>=90?"CPU HIGH":gpu>=95?"FULL POWER":"NORMAL",cpu>=90?"caution":"ok");
  var e=$("eicas");e.textContent="";if(!f.alerts.length){var d=document.createElement("div");d.className="normal";d.textContent="ALL SYSTEMS NORMAL";e.appendChild(d);}
