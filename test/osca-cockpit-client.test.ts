@@ -8,9 +8,9 @@ import { cockpitFrame,parseStrataMetrics } from "../src/osca/cockpit.js";
 function fakeDom(){
  const elements=new Map<string,any>();const handlers:Record<string,()=>void>={};
  const ctx2d:any=new Proxy(function(){},{get:(_t,k)=>k==="getImageData"?()=>({data:[]}):k==="measureText"?()=>({width:10}):k==="createLinearGradient"?()=>({addColorStop(){}}):()=>{},set:()=>true});
- const el=(id:string):any=>{if(elements.has(id))return elements.get(id);const e:any={id,textContent:"",innerHTML:"",className:"",hidden:false,style:{},width:0,height:0,offsetWidth:300,offsetHeight:200,firstChild:{style:{}},
+ const el=(id:string):any=>{if(elements.has(id))return elements.get(id);let text="";const e:any={id,get textContent():string{return text+this.children.map((c:any)=>typeof c==="string"?c:c.textContent).join("");},set textContent(value:string){text=value;this.children=[];},innerHTML:"",className:"",hidden:false,style:{},width:0,height:0,offsetWidth:300,offsetHeight:200,firstChild:{style:{}},
   attrs:{} as Record<string,string>,children:[] as any[],
-  getAttribute(n:string){return this.attrs[n]??null;},setAttribute(n:string,v:string){this.attrs[n]=v;},appendChild(c:any){this.children.push(c);return c;},
+  getAttribute(n:string){return this.attrs[n]??null;},setAttribute(n:string,v:string){this.attrs[n]=v;},appendChild(c:any){this.children.push(c);return c;},append(...nodes:any[]){this.children.push(...nodes);},
   querySelector(){return el(id+"-child");},querySelectorAll(){return [];},getBoundingClientRect(){return {width:300,height:200,left:0,top:0,right:300,bottom:200};},
   getContext(){return ctx2d;},classList:{toggle(){},add(){},remove(){}},addEventListener(){},set onclick(f:()=>void){handlers[id]=f;}};elements.set(id,e);return e;};
  const rangeButtons=["live","1h","24h","7d","30d"].map(r=>{const b=el("rng-"+r);b.attrs["data-r"]=r;return b;});
@@ -88,8 +88,9 @@ describe("cockpit client script",()=>{
   const loadedInkling={...noOllama,inkling:idleLlm,llm:{...noOllama.llm,model:"inkling-2-mini",loaded:true,engines:[{kind:"inkling" as const,model:"inkling-2-mini"}]}};
   sandbox.apply(loadedInkling);expect(document.getElementById("llmM").textContent).toBe("LOADED · inkling-2-mini");
   expect(document.getElementById("llm").className).toBe("llm loaded");
-  sandbox.apply({...loadedInkling,llm:{...loadedInkling.llm,engines:[{kind:"ollama" as const,model:"osca-qwen3.8:27b"},...loadedInkling.llm.engines]}});
-  expect(document.getElementById("llmM").textContent).toBe("LOADED · osca-qwen3.8:27b · inkling-2-mini");
+  sandbox.apply({...loadedInkling,llm:{...loadedInkling.llm,engines:[{kind:"ollama" as const,model:"osca-qwen3.8:27b-q8-128k"},...loadedInkling.llm.engines]}});
+  expect(document.getElementById("llmM").textContent).toBe("LOADED · osca-qwen3.8:27b-q8-128k · inkling-2-mini");
+  expect(document.getElementById("llmM").children.filter((node:any)=>typeof node!=="string").map((node:any)=>node.style.color)).toEqual(["#3FD0F0","#5ED39A"]);
   sandbox.apply({...loadedInkling,inkling:{...idleLlm,phase:"writing" as const,tps:35}});run(4);
   expect(document.getElementById("llmM").textContent).toBe("INKLING · ACTIVE");
   expect(document.getElementById("llmP").textContent).toBe("WRITING");

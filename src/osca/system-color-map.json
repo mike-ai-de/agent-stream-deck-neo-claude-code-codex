@@ -1,0 +1,113 @@
+{
+  "version": "1.0.0",
+  "corporateDesign": {
+    "name": "Mike Schweiger",
+    "version": "1.0.0",
+    "source": "https://app.notion.com/p/4113c6c7d01481dd9a1bf089f68c36c6",
+    "sourceSha256": "2a67ece187c9e617eefb34be3769d931b247bdc23aa9df5502619d26811b1ea3"
+  },
+  "usage": "Resolve entries through palette. Use group and ID as the stable identity and keep a visible label. Hues can repeat across groups and among infrastructure components. Status always comes from status, even when its hue is also used for an identity.",
+  "palette": {
+    "bg": "#000000",
+    "panel": "#0A0A0A",
+    "surface": "#141414",
+    "line": "#2A2A2A",
+    "white": "#FFFFFF",
+    "dim": "#9A9A9A",
+    "orange": "#F7931E",
+    "red": "#E8352B",
+    "amber": "#F5A623",
+    "yellow": "#F5E623",
+    "green": "#3CB54A",
+    "mint": "#5ED39A",
+    "cyan": "#3FD0F0",
+    "blue": "#4A8FE0"
+  },
+  "status": {
+    "error": "red",
+    "success": "green",
+    "warning": "amber",
+    "info": "cyan"
+  },
+  "agents": {
+    "claude": "orange",
+    "codex": "blue",
+    "hermes": "yellow",
+    "pi": "mint",
+    "orca": "cyan"
+  },
+  "runtimes": {
+    "strata": "yellow",
+    "ollama": "blue",
+    "inkling": "mint"
+  },
+  "models": {
+    "qwen3.8-27b": {
+      "color": "cyan",
+      "aliases": ["osca-qwen3.8:27b-q8-128k", "qwen3.8:27b-q8_0"]
+    },
+    "qwen3.8-27b-uncensored": {
+      "color": "orange",
+      "aliases": ["orcarouter/Qwen3.8-27B-Uncensored:q4_K_M"]
+    },
+    "qwen3.6-35b": {
+      "color": "blue",
+      "aliases": ["osca-qwen3.6:35b-q8-64k", "qwen3.6:35b-a3b-q8_0"]
+    },
+    "qwen3.8-flash-next": {
+      "color": "yellow",
+      "aliases": ["qwen3.8-flash-next-iq3_s"]
+    },
+    "inkling-2-mini": {
+      "color": "mint",
+      "aliases": ["inkling-2-mini", "inkling"]
+    }
+  },
+  "speechModels": {
+    "parakeet-v3": "cyan",
+    "omnivoice": "mint",
+    "qwen3-tts-1.7b": "blue"
+  },
+  "modelAssets": {
+    "qwen3.8-flash-next-vision-projector": "yellow",
+    "qwen3.8-flash-next-mtp": "yellow"
+  },
+  "components": {
+    "agents": "white",
+    "cpu": "cyan",
+    "gpu": "blue",
+    "memory": "mint",
+    "disks": "orange",
+    "chip": "amber",
+    "inference": "mint",
+    "speech": "cyan",
+    "services": "white",
+    "exchange": "cyan",
+    "backup": "mint",
+    "control": "yellow",
+    "mail": "blue",
+    "notion": "white",
+    "hostinger": "orange",
+    "whatsapp": "green",
+    "stop": "white",
+    "needs": "dim",
+    "nextCheck": "dim"
+  },
+  "flightDeck": {
+    "agents": {
+      "claude": "claude",
+      "codex": "codex",
+      "hermes": "hermes",
+      "orca": "pi"
+    },
+    "systemTiles": {
+      "claudeQuota": "claude",
+      "codexQuota": "codex",
+      "ollamaMemory": "ollama"
+    },
+    "telemetry": {
+      "input": "blue",
+      "output": "cyan"
+    }
+  }
+}
